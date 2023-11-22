@@ -1,7 +1,7 @@
-# cookie-monster
+# Cookie-Monster
 Steal browser cookies for edge, chrome and firefox through a BOF or exe! 
-Cookie-Monster will extract the WebKit master key, locate a browser process with a handle to the Cookies and Login Data files, copy the handle(s) and then fileless download the target.
-Once the Cookies/Login Data file(s) are downloaded, the python decryption script can help extract those secrets!  
+Cookie-Monster will extract the WebKit master key, locate a browser process with a handle to the Cookies and Login Data files, copy the handle(s) and then filelessly download the target.
+Once the Cookies/Login Data file(s) are downloaded, the python decryption script can help extract those secrets! Firefox module will parse the profiles.ini and locate where the logins.json and key4.db files are located and download them. A seperate github repo is referenced for offline decryption.  
 
 ## BOF Usage
 ```
@@ -46,7 +46,7 @@ Base64 encode the webkit masterkey
 python3 base64-encode.py "\xec\xfc...."
 ```
 
-Decrypt Cookies File
+Decrypt Chrome/Edge Cookies File
 ```
 python .\decrypt.py "XHh..." --cookies ChromeCookie.db
 
@@ -65,7 +65,7 @@ Cookie: x123.....
 Expires: Nov 11 2023 21:25:22
 ```
 
-Decrypt Passwords File
+Decrypt Chome/Edge Passwords File
 ```
 python .\decrypt.py "XHh..." --passwords ChromePasswords.db
 
@@ -75,6 +75,8 @@ URL: https://test.com/
 Username: tester
 Password: McTesty
 ```
+Decrypt Firefox Cookies and Stored Credentials: <br>
+https://github.com/lclevy/firepwd
 
 ## Installation
 Ensure Mingw-w64 and make is installed on the linux prior to compiling.
@@ -88,7 +90,7 @@ gcc .\cookie-monster.c -o cookie-monster.exe -lshlwapi -lcrypt32
 ```
 
 ### TO-DO
-- update decryption for firefox
+- update decrypt.py to support firefox based on [firepwd](https://github.com/lclevy/firepwd) and add bruteforce module based on [DonPAPI](https://github.com/login-securite/DonPAPI)
 
 ## References
 This project could not have been done without the help of Mr-Un1k0d3r and his amazing seasonal videos!

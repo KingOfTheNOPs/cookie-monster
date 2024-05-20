@@ -86,7 +86,7 @@ make
 
 to compile exe on windows
 ```
-gcc .\cookie-monster.c -o cookie-monster.exe -lshlwapi -lcrypt32
+gcc .\cookie-monster.c -o cookie-monster.exe -lshlwapi -lcrypt32 -lntdll
 ```
 
 ### TO-DO

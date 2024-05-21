@@ -1,5 +1,3 @@
-#code inspired by DonPAPI https://github.com/login-securite/DonPAPI
-
 import sys
 import base64
 import sqlite3
@@ -123,9 +121,10 @@ def main():
 	# get arguements
 	args = sys.argv[1:]
 	if len(args) != 3:
-		print("Usage: python decrypt.py <base64 key> [--cookies || --passwords <DB File Location>]")
+		print("Usage: python decrypt.py <Decrypt Key> [--cookies || --passwords <DB File Location>]")
 		sys.exit(1)
-	base64_key = args[0]
+	key = args[0]
+	base64_key = base64.b64encode(key.encode())
 	option = args[1]
 	file_location = args[2]
 	
@@ -139,10 +138,8 @@ def main():
 	elif option == "--firefox":
 		print("TO DO")
 	else:
-		print("Usage: python decrypt.py <base64 key> [--cookies || --passwords <DB File Location>]")
+		print("Usage: python decrypt.py <Decrypt Key> [--cookies || --passwords <DB File Location>]")
 		sys.exit(1)
 	
-
-
 if __name__ == "__main__":
 	main()

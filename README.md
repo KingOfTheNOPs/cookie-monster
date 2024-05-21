@@ -40,15 +40,9 @@ Install requirements
 ```
 pip3 install -r requirements.txt
 ```
-
-Base64 encode the webkit masterkey
-``` 
-python3 base64-encode.py "\xec\xfc...."
-```
-
 Decrypt Chrome/Edge Cookies File
 ```
-python .\decrypt.py "XHh..." --cookies ChromeCookie.db
+python .\decrypt.py "\xec\xfc...." --cookies ChromeCookie.db
 
 Results Example:
 -----------------------------------
@@ -67,7 +61,7 @@ Expires: Nov 11 2023 21:25:22
 
 Decrypt Chome/Edge Passwords File
 ```
-python .\decrypt.py "XHh..." --passwords ChromePasswords.db
+python .\decrypt.py "\xec\xfc...." --passwords ChromePasswords.db
 
 Results Example:
 -----------------------------------
@@ -86,7 +80,7 @@ make
 
 to compile exe on windows
 ```
-gcc .\cookie-monster.c -o cookie-monster.exe -lshlwapi -lcrypt32
+gcc .\cookie-monster.c -o cookie-monster.exe -lshlwapi -lcrypt32 -lntdll
 ```
 
 ### TO-DO

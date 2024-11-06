@@ -32,10 +32,10 @@ cookie-monster Options: \
 # $2 - args
 
 alias cookie-monster {
-    local('$handle $data $args $chrome $edge $firefox $all');
-
+    local('$barch $handle $data $args $chrome $edge $firefox $all');
+    $barch = barch($1);
     # read in our BOF file...   
-    $handle = openf(script_resource("cookie-monster-bof.o"));
+    $handle = openf(script_resource("cookie-monster-bof." . $barch . ".o"));
     $data   = readb($handle, -1);
     closef($handle);
 

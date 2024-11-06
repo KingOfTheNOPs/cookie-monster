@@ -15,13 +15,13 @@ def cookies(key, file_location):
     try:
         conn = sqlite3.connect(file_location)
         cursor = conn.cursor()
-        cursor.execute('select host_key, "TRUE", path, "FALSE", expires_utc, name, encrypted_value from cookies')
+        cursor.execute('select host_key, "TRUE", path, "FALSE", expires_utc, name, CAST(encrypted_value AS BLOB) from cookies')
         values = cursor.fetchall()
         for host_key, _, path, _, expires_utc, name, encrypted_value in values:
             print("Host: " + host_key)
             print("Path: " + path)
             print("Name: " + name)
-            print("Cookie: " + decrypt_data(encrypted_value, key) + ";")
+            print("Cookie: " + decrypt_data(encrypted_value,key) + ";")
             print("Expires: " + (datetime(1601, 1, 1) + timedelta(microseconds=expires_utc)).strftime('%b %d %Y %H:%M:%S'))
             print("")
     except sqlite3.Error as e:
@@ -37,7 +37,7 @@ def cookies_for_editor(key, file_location):
     try:
         conn = sqlite3.connect(file_location)
         cursor = conn.cursor()
-        cursor.execute('select host_key, "TRUE", path, "FALSE", expires_utc, name, encrypted_value from cookies')
+        cursor.execute('select host_key, "TRUE", path, "FALSE", expires_utc, name, CAST(encrypted_value AS BLOB) from cookies')
         values = cursor.fetchall()
         for host_key, _, path, _, expires_utc, name, encrypted_value in values:
             decrypted_value = decrypt_data(encrypted_value, key)
@@ -90,11 +90,11 @@ def decrypt_data(encrypted_junk, key):
         if len(nonce) == 0:
             print("Error: Nonce cannot be empty")
             return ""
-        cipher_text = encrypted_junk[15:]
+        cipher_text = encrypted_junk[3+12:-16]
         tag = encrypted_junk[-16:]
         plain_text = AES.new(key, AES.MODE_GCM, nonce)
-        text = plain_text.decrypt(cipher_text)[:-16]
-        return text.decode('utf-8')
+        text = plain_text.decrypt(cipher_text)
+        return text[32:].decode('utf-8')
     except Exception as e:
         print("Error: Could not decrypt password")
         print(e)

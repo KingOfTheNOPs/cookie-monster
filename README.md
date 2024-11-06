@@ -1,7 +1,9 @@
 # Cookie-Monster
 Steal browser cookies for edge, chrome and firefox through a BOF or exe! 
-Cookie-Monster will extract the WebKit master key, locate a browser process with a handle to the Cookies and Login Data files, copy the handle(s) and then filelessly download the target.
+Cookie-Monster will extract the WebKit master key and the App Bound key, locate a browser process with a handle to the Cookies and Login Data files, copy the handle(s) and then filelessly download the target.
 Once the Cookies/Login Data file(s) are downloaded, the python decryption script can help extract those secrets! Firefox module will parse the profiles.ini and locate where the logins.json and key4.db files are located and download them. A seperate github repo is referenced for offline decryption.  
+
+Chrome 127+ Updates: new cookies now use app bound key to encrypt the cookies. As a result, this makes retrieving the app_bound_key slightly more difficult. Thanks to [snovvcrash](https://gist.github.com/snovvcrash/caded55a318bbefcb6cc9ee30e82f824) this process is a lot easier. The catch is your process must be running out of web browser's application directory. i.e. must inject into Chrome or spawn a beacon from the same directory as Chrome. 
 
 ## BOF Usage
 ```
@@ -94,4 +96,6 @@ https://github.com/Mr-Un1k0d3r/Cookie-Graber-BOF <br>
 Fileless download:
 https://github.com/fortra/nanodump <br>
 Decrypt Cookies and Login Data:
-https://github.com/login-securite/DonPAPI
+https://github.com/login-securite/DonPAPI <br>
+App Bound Key Decryption:
+https://gist.github.com/snovvcrash/caded55a318bbefcb6cc9ee30e82f824 <br>

@@ -85,20 +85,37 @@ def login_data(key, file_location):
 
 def decrypt_data(encrypted_junk, key):
     key = binascii.unhexlify(key)
-    try:
-        nonce = encrypted_junk[3:3 + 12]
-        if len(nonce) == 0:
-            print("Error: Nonce cannot be empty")
+    version = encrypted_junk[:3]
+    if version in (b'v10', b'v11'):
+        try:
+            nonce = encrypted_junk[3:3 + 12]
+            if len(nonce) == 0:
+                print("Error: Nonce cannot be empty")
+                return ""
+            cipher_text = encrypted_junk[3+12:-16]
+            tag = encrypted_junk[-16:]
+            plain_text = AES.new(key, AES.MODE_GCM, nonce)
+            text = plain_text.decrypt(cipher_text)
+            return text[32:].decode('utf-8')
+        except Exception as e:
+            print("Error: Could not decrypt password")
+            print(e)
             return ""
-        cipher_text = encrypted_junk[3+12:-16]
-        tag = encrypted_junk[-16:]
-        plain_text = AES.new(key, AES.MODE_GCM, nonce)
-        text = plain_text.decrypt(cipher_text)
-        return text[32:].decode('utf-8')
-    except Exception as e:
-        print("Error: Could not decrypt password")
-        print(e)
-        return ""
+    if version in (b'v20'):    
+        try:
+            nonce = encrypted_junk[3:3 + 12]
+            if len(nonce) == 0:
+                print("Error: Nonce cannot be empty")
+                return ""
+            cipher_text = encrypted_junk[3+12:-16]
+            tag = encrypted_junk[-16:]
+            plain_text = AES.new(key, AES.MODE_GCM, nonce)
+            text = plain_text.decrypt(cipher_text)
+            return text[32:].decode('utf-8')
+        except Exception as e:
+            print("Error: Could not decrypt password")
+            print(e)
+            return ""
 
 def main():
     args = sys.argv[1:]

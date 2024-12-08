@@ -91,6 +91,8 @@ enum PacketType {
 // https://gist.github.com/snovvcrash/caded55a318bbefcb6cc9ee30e82f824
 const CLSID Chrome_CLSID_Elevator = { 0x708860E0, 0xF641, 0x4611, {0x88, 0x95, 0x7D, 0x86, 0x7D, 0xD3, 0x67, 0x5B} };
 const IID Chrome_IID_IElevator    = { 0x463ABECF, 0x410D, 0x407F, {0x8A, 0xF5, 0x0D, 0xF3, 0x5A, 0x00, 0x5C, 0xC8} };
+const CLSID Edge_CLSID_Elevator   = { 0x1FCBE96C, 0x1697, 0x43AF, {0x91, 0x40, 0x28, 0x97, 0xC7, 0xC6, 0x97, 0x67} };
+const IID Edge_IID_IElevator      = { 0xC9C2B807, 0x7731, 0x4F34, {0x81, 0xB7, 0x44, 0xFF, 0x77, 0x79, 0x52, 0x2B} };
 
 typedef enum {
     PROTECTION_NONE = 0,
@@ -99,69 +101,120 @@ typedef enum {
     PROTECTION_MAX = 3
 } ProtectionLevel;
 
-// https://fossies.org/dox/brave-core-1.71.121/x64_2elevation__service__idl_8h_source.html
-#ifndef DECLSPEC_XFGVIRT
-#if defined(_CONTROL_FLOW_GUARD_XFG)
-#define DECLSPEC_XFGVIRT(base, func) __declspec(xfg_virtual(base, func))
-#else
-#define DECLSPEC_XFGVIRT(base, func)
-#endif
-#endif
- 
-typedef struct IElevator IElevator;
+// oleview used to extract structures
+// note how edge required 3 additional functions in the structure
 
-typedef struct IElevatorVtbl
+typedef struct IElevatorEdge IElevatorEdge;
+
+typedef struct IElevatorEdgeVtbl
     {
-        BEGIN_INTERFACE
         
-        DECLSPEC_XFGVIRT(IUnknown, QueryInterface)
         HRESULT ( STDMETHODCALLTYPE *QueryInterface )( 
-            IElevator * This,
+            IElevatorEdge * This,
             /* [in] */ REFIID riid,
             /* [annotation][iid_is][out] */ 
             _COM_Outptr_  void **ppvObject);
         
-        DECLSPEC_XFGVIRT(IUnknown, AddRef)
         ULONG ( STDMETHODCALLTYPE *AddRef )( 
-            IElevator * This);
+            IElevatorEdge * This);
         
-        DECLSPEC_XFGVIRT(IUnknown, Release)
         ULONG ( STDMETHODCALLTYPE *Release )( 
-            IElevator * This);
+            IElevatorEdge * This);
+
+        HRESULT ( STDMETHODCALLTYPE *ReservedFunction1 )( 
+            IElevatorEdge * This);
         
-        DECLSPEC_XFGVIRT(IElevator, RunRecoveryCRXElevated)
+        HRESULT ( STDMETHODCALLTYPE *LaunchUpdateCmdElevated )( 
+            IElevatorEdge * This,
+            /* [in] */ LPWSTR browser_appid, 
+            /* [in] */ LPWSTR cmd_id, 
+            /* [in] */ unsigned long caller_proc_id, 
+            /* [out] */ ULONG_PTR* proc_handle);
+
+        HRESULT ( STDMETHODCALLTYPE *LaunchUpdateCmdElevatedAndWait )( 
+            IElevatorEdge * This,
+            /* [in] */ LPWSTR browser_appid, 
+            /* [in] */ LPWSTR cmd_id, 
+            /* [in] */ unsigned long wait_timeout, 
+            /* [out] */ unsigned long* exit_code);
+
         HRESULT ( STDMETHODCALLTYPE *RunRecoveryCRXElevated )( 
-            IElevator * This,
-            /* [string][in] */ const WCHAR *crx_path,
-            /* [string][in] */ const WCHAR *browser_appid,
-            /* [string][in] */ const WCHAR *browser_version,
-            /* [string][in] */ const WCHAR *session_id,
-            /* [in] */ DWORD caller_proc_id,
+            IElevatorEdge * This,
+            /* [string][in] */ WCHAR *crx_path,
+            /* [string][in] */ WCHAR *browser_appid,
+            /* [string][in] */ WCHAR *browser_version,
+            /* [string][in] */ WCHAR *session_id,
+            /* [in] */ unsigned long caller_proc_id,
             /* [out] */ ULONG_PTR *proc_handle);
         
-        DECLSPEC_XFGVIRT(IElevator, EncryptData)
         HRESULT ( STDMETHODCALLTYPE *EncryptData )( 
-            IElevator * This,
+            IElevatorEdge * This,
             /* [in] */ ProtectionLevel protection_level,
-            /* [in] */ const BSTR plaintext,
+            /* [in] */  BSTR plaintext,
             /* [out] */ BSTR *ciphertext,
-            /* [out] */ DWORD *last_error);
+            /* [out] */ unsigned long *last_error);
         
-        DECLSPEC_XFGVIRT(IElevator, DecryptData)
         HRESULT ( STDMETHODCALLTYPE *DecryptData )( 
-            IElevator * This,
-            /* [in] */ const BSTR ciphertext,
+            IElevatorEdge * This,
+            /* [in] */  BSTR ciphertext,
             /* [out] */ BSTR *plaintext,
-            /* [out] */ DWORD *last_error);
+            /* [out] */ unsigned long *last_error);
         
-        DECLSPEC_XFGVIRT(IElevator, InstallVPNServices)
         HRESULT ( STDMETHODCALLTYPE *InstallVPNServices )( 
-            IElevator * This);
+            IElevatorEdge * This);
         
-        END_INTERFACE
-    } IElevatorVtbl;
+    } IElevatorEdgeVtbl;
  
-    interface IElevator
+    struct IElevatorEdge
     {
-        CONST_VTBL struct IElevatorVtbl *lpVtbl;
+        struct IElevatorEdgeVtbl *lpVtbl;
+    };
+
+typedef struct IElevatorChrome IElevatorChrome;
+
+typedef struct IElevatorChromeVtbl
+    {
+        
+        HRESULT ( STDMETHODCALLTYPE *QueryInterface )( 
+            IElevatorChrome * This,
+            /* [in] */ REFIID riid,
+            /* [annotation][iid_is][out] */ 
+            _COM_Outptr_  void **ppvObject);
+        
+        ULONG ( STDMETHODCALLTYPE *AddRef )( 
+            IElevatorChrome * This);
+        
+        ULONG ( STDMETHODCALLTYPE *Release )( 
+            IElevatorChrome * This);
+
+        HRESULT ( STDMETHODCALLTYPE *RunRecoveryCRXElevated )( 
+            IElevatorChrome * This,
+            /* [string][in] */ WCHAR *crx_path,
+            /* [string][in] */ WCHAR *browser_appid,
+            /* [string][in] */ WCHAR *browser_version,
+            /* [string][in] */ WCHAR *session_id,
+            /* [in] */ unsigned long caller_proc_id,
+            /* [out] */ ULONG_PTR *proc_handle);
+        
+        HRESULT ( STDMETHODCALLTYPE *EncryptData )( 
+            IElevatorChrome * This,
+            /* [in] */ ProtectionLevel protection_level,
+            /* [in] */  BSTR plaintext,
+            /* [out] */ BSTR *ciphertext,
+            /* [out] */ unsigned long *last_error);
+        
+        HRESULT ( STDMETHODCALLTYPE *DecryptData )( 
+            IElevatorChrome * This,
+            /* [in] */  BSTR ciphertext,
+            /* [out] */ BSTR *plaintext,
+            /* [out] */ unsigned long *last_error);
+        
+        HRESULT ( STDMETHODCALLTYPE *InstallVPNServices )( 
+            IElevatorChrome * This);
+        
+    } IElevatorChromeVtbl;
+ 
+    struct IElevatorChrome
+    {
+        struct IElevatorChromeVtbl *lpVtbl;
     };

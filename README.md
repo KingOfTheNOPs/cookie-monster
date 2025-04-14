@@ -15,7 +15,7 @@ Usage: cookie-monster [--chrome || --edge || --system <Local State File Path> <P
 cookie-monster Example: 
    cookie-monster --chrome 
    cookie-monster --edge 
-   cookie-monster --system "C:\Users\<USER>\AppData\Local\<BROWSER>\User Data\Local State\" <PID> 
+   cookie-monster --system "C:\Users\<USER>\AppData\Local\<BROWSER>\User Data\Local State" <PID> 
    cookie-monster --firefox 
    cookie-monster --chromeCookiePID 1337
    cookie-monster --chromeLoginDataPID 1337

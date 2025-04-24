@@ -31,6 +31,11 @@ cookie-monster Options:
     --edgeCookiePID, if edge PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and file
     --edgeLoginDataPID, if edge PID is provided look for the specified process with a handle to Login Data is known, specifiy the pid to duplicate its handle and file  
 ```
+## Compile BOF 
+Ensure Mingw-w64 and make is installed on the linux prior to compiling.
+```
+make
+```
 
 ## Decryption Steps
 Install requirements
@@ -116,15 +121,6 @@ npm install
 cp ~/cookie-monster/cuddlephish_YYYY-MM-DD_HH-MM-SS.json .
 node stealer.js cuddlephish_YYYY-MM-DD_HH-MM-SS.json
 ```
-
-## Installation
-Ensure Mingw-w64 and make is installed on the linux prior to compiling.
-```
-make
-```
-
-### TO-DO
-- update decrypt.py to support firefox based on [firepwd](https://github.com/lclevy/firepwd) and add bruteforce module based on [DonPAPI](https://github.com/login-securite/DonPAPI)
 
 ## References
 This project could not have been done without the help of Mr-Un1k0d3r and his amazing seasonal videos!

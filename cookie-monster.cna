@@ -9,7 +9,7 @@
 beacon_command_register(
 "cookie-monster",
 "Locate and copy the cookie file used for Edge/Chrome/Firefox",
-"Usage: cookie-monster [--chrome || --edge || --system <Local State File Path> <PID> || --firefox || --chromeCookiePID <PID> || --chromeLoginDataPID <PID> || --edgeCookiePID <PID> || --edgeLoginDataPID <PID> ] [--cookie-only] [--key-only] [--login-data-only] [--copy-file C:\\Folder\\Location\\] \
+"Usage: cookie-monster [--chrome || --edge || --system <Local State File Path> <PID> || --firefox || --chromeCookiePID <PID> || --chromeLoginDataPID <PID> || --edgeCookiePID <PID> || --edgeLoginDataPID <PID> ] [--cookie-only] [--key-only] [--login-data-only] [--copy-file \"C:\\Folder\\Location\\\"] \
 cookie-monster Example: \
    cookie-monster --chrome \
    cookie-monster --edge \

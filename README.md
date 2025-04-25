@@ -11,11 +11,11 @@ Latest update allows you to decrypt cookies as SYSTEM and without having to inje
  
 ## BOF Usage
 ```
-Usage: cookie-monster [--chrome || --edge || --system <Local State File Path> <PID> || --firefox || --chromeCookiePID <PID> || --chromeLoginDataPID <PID> || --edgeCookiePID <PID> || --edgeLoginDataPID <PID> ] [--cookie-only] [--key-only] [--login-data-only] [--copy-file C:\Folder\Location\] 
+Usage: cookie-monster [--chrome || --edge || --system <Local State File Path> <PID> || --firefox || --chromeCookiePID <PID> || --chromeLoginDataPID <PID> || --edgeCookiePID <PID> || --edgeLoginDataPID <PID> ] [--cookie-only] [--key-only] [--login-data-only] [--copy-file "C:\Folder\Location\"] 
 cookie-monster Examples: 
    cookie-monster --chrome 
    cookie-monster --edge
-   cookie-monster --system "C:\Users\<USER>\AppData\Local\<BROWSER>\User Data\Local State" <PID> 
+   cookie-monster --system "C:\Users\<USER>\AppData\Local\<BROWSER>\User Data\Local State" <PID>
    cookie-moster --firefox 
    cookie-monster --chromeCookiePID <PID>
    cookie-monster --chromeLoginDataPID <PID> 

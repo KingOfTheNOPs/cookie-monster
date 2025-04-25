@@ -12,7 +12,7 @@ beacon_command_register(
 "Usage: cookie-monster [--chrome || --edge || --system <Local State File Path> <PID> || --firefox || --chromeCookiePID <PID> || --chromeLoginDataPID <PID> || --edgeCookiePID <PID> || --edgeLoginDataPID <PID> ] [--cookie-only] [--key-only] [--login-data-only] [--copy-file C:\\Folder\\Location\\] \
 cookie-monster Example: \
    cookie-monster --chrome \
-   cookie-monster --edge --key-only \
+   cookie-monster --edge \
    cookie-monster --system \"C:\\Users\\<USER>\\AppData\\Local\\<BROWSER>\\User\ Data\\Local\ State\" <PID> \
    cookie-moster --firefox \
    cookie-monster --chromeCookiePID <PID> \

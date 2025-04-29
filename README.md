@@ -11,25 +11,29 @@ Latest update allows you to decrypt cookies as SYSTEM and without having to inje
  
 ## BOF Usage
 ```
-Usage: cookie-monster [--chrome || --edge || --system <Local State File Path> <PID> || --firefox || --chromeCookiePID <PID> || --chromeLoginDataPID <PID> || --edgeCookiePID <PID> || --edgeLoginDataPID <PID> ] 
-cookie-monster Example: 
+Usage: cookie-monster [--chrome || --edge || --system <Local State File Path> <PID> || --firefox || --chromeCookiePID <PID> || --chromeLoginDataPID <PID> || --edgeCookiePID <PID> || --edgeLoginDataPID <PID> ] [--cookie-only] [--key-only] [--login-data-only] [--copy-file "C:\Folder\Location\"] 
+cookie-monster Examples: 
    cookie-monster --chrome 
-   cookie-monster --edge 
-   cookie-monster --system "C:\Users\<USER>\AppData\Local\<BROWSER>\User Data\Local State" <PID> 
-   cookie-monster --firefox 
-   cookie-monster --chromeCookiePID 1337
-   cookie-monster --chromeLoginDataPID 1337
-   cookie-monster --edgeCookiePID 4444
-   cookie-monster --edgeLoginDataPID 4444
+   cookie-monster --edge
+   cookie-monster --system "C:\Users\<USER>\AppData\Local\<BROWSER>\User Data\Local State" <PID>
+   cookie-moster --firefox 
+   cookie-monster --chromeCookiePID <PID>
+   cookie-monster --chromeLoginDataPID <PID> 
+   cookie-monster --edgeCookiePID <PID> 
+   cookie-monster --edgeLoginDataPID <PID> 
 cookie-monster Options: 
-    --chrome, looks at all running processes and handles, if one matches chrome.exe it copies the handle to Cookies/Login Data and then copies the file to the CWD 
-    --edge, looks at all running processes and handles, if one matches msedge.exe it copies the handle to Cookies/Login Data and then copies the file to the CWD
+    --chrome, looks at all running processes and handles, if one matches chrome.exe it copies the handle to cookies and then copies the file to the CWD 
+    --edge, looks at all running processes and handles, if one matches msedge.exe it copies the handle to cookies and then copies the file to the CWD 
     --system, Decrypt chromium based browser app bound encryption key without injecting into browser. Requires path to Local State file and PID of a user process for impersonation 
     --firefox, looks for profiles.ini and locates the key4.db and logins.json file 
-    --chromeCookiePID, if chrome PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and file
-    --chromeLoginDataPID, if chrome PID is provided look for the specified process with a handle to Login Data is known, specifiy the pid to duplicate its handle and file  
-    --edgeCookiePID, if edge PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and file
+    --chromeCookiePID, if chrome PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and file 
+    --chromeLoginDataPID, if chrome PID is provided look for the specified process with a handle to Login Data is known, specifiy the pid to duplicate its handle and file   
+    --edgeCookiePID, if edge PID is provided look for the specified process with a handle to cookies is known, specifiy the pid to duplicate its handle and file 
     --edgeLoginDataPID, if edge PID is provided look for the specified process with a handle to Login Data is known, specifiy the pid to duplicate its handle and file  
+    --key-only, only retrieve the app bound encryption key. Do not attempt to download the Cookie or Login Data files. 
+    --cookie-only, only retrieve the Cookie file. Do not attempt to download Login Data file or retrieve app bound encryption key. 
+    --login-data-only, only retrieve the Login Data file. Do not attempt to download Cookie file or retrieve app bound encryption key.  
+    --copy-file, copies the Cookie and Login Data file to the folder specified. Does not use fileless retrieval method.   
 ```
 ## Compile BOF 
 Ensure Mingw-w64 and make is installed on the linux prior to compiling.

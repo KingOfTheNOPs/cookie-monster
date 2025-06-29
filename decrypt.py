@@ -100,29 +100,30 @@ def cookies_for_cuddlephish(key, file_location):
         for creation_utc, host_key, top_frame_site_key, name, encrypted_value, path, expires_utc, is_secure, is_httponly, last_access_utc, has_expires, is_persistent, priority, samesite, source_scheme, source_port, last_update_utc, source_type, has_cross_site_ancestor in values:
             decrypted_value = decrypt_data(encrypted_value, key)
             expiration_date = (datetime(1601, 1, 1) + timedelta(microseconds=expires_utc)).timestamp() if has_expires else -1
+        
+            samesite_map = {0: "None", 1: "Lax", 2: "Strict"}
+            
+            source_scheme_map = {0: "NonSecure", 1: "Secure"}
+            
             cookie = {
-                'creation_utc': creation_utc,
                 'domain': host_key,
-                'top_frame_site_key': top_frame_site_key,
+                'expires': expiration_date,
+                'httpOnly': bool(is_httponly),
                 'name': name,
-                'value': decrypted_value, 
                 'path': path,
-                'expires_utc': expiration_date,
-                'is_secure': bool(is_secure),
-                'is_httponly': bool(is_httponly),
-                'last_access_utc': last_access_utc,
-                'has_expires': has_expires,
-                'is_persistent': is_persistent,
                 'priority': priority_map.get(priority, "Medium"),
-                "size": len(name) + len(decrypted_value),
-                'source_port': source_port,
-                'last_update_utc': last_update_utc,
-                'source_type': source_type
+                'sameParty': False, 
+                'sameSite': samesite_map.get(samesite, "None"),
+                'secure': bool(is_secure),
+                'session': not bool(is_persistent), 
+                'size': len(name) + len(decrypted_value),
+                'sourcePort': source_port,
+                'value': decrypted_value
             }
             cookies.append(cookie)
-        
+
         output = {
-            "url": "https://google.com",
+            "url": "about:blank",
             "cookies": cookies,
             "local_storage": []
         }

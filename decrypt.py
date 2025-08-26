@@ -164,7 +164,8 @@ def decrypt_data(encrypted_junk, key):
             tag = encrypted_junk[-16:]
             plain_text = AES.new(key, AES.MODE_GCM, nonce)
             text = plain_text.decrypt(cipher_text)
-            return text[32:].decode('utf-8')
+            return text.decode('utf-8')
+            # return text[32:].decode('utf-8')
         except Exception as e:
             print("Error: Could not decrypt password")
             print(e)

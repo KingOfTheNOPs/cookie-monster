@@ -11,6 +11,10 @@ Chrome & Edge 127+ Updates: new chromium browser cookies (v20) use the app bound
 
 Latest update allows you to decrypt cookies as SYSTEM and without having to inject into the browser process! Shoutout to @sdemius for the discovering how to decrypt the Chrome's [PostProcessData](https://source.chromium.org/chromium/chromium/src/+/main:chrome/elevation_service/elevator.cc;l=216;bpv=1) function and @b1scoito [explanation](https://github.com/moonD4rk/HackBrowserData/issues/431#issuecomment-2606665195)! Chrome 137+ changed the PostProcessData() function once again, shoutout to [@runassu](https://github.com/runassu/chrome_v20_decryption) for figuring it out! 
  
+## Limitations in Standalone EXE
+- The executable does not properly copy the cookies or login databases with the browser process still running.
+- To copy the databases, you must kill the browser process and manually copy them. This does not require local administrator. 
+
 ## BOF Usage
 ```
 Usage: cookie-monster [--chrome || --edge || --system <Local State File Path> <PID> || --firefox || --chromeCookiePID <PID> || --chromeLoginDataPID <PID> || --edgeCookiePID <PID> || --edgeLoginDataPID <PID> ] [--cookie-only] [--key-only] [--login-data-only] [--copy-file "C:\Folder\Location\"] 

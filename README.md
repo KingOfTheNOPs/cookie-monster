@@ -1,7 +1,9 @@
 # Cookie-Monster-BOF
-Steal browser cookies for edge, chrome and firefox through a BOF!
+Steal browser cookies for edge, chrome and firefox through a BOF or standalone EXE!
 
-Cookie Monster BOF will extract the WebKit Master Key and the App Bound Encryption Key for both Edge and Chrome, locate a browser process with a handle to the Cookies and Login Data files, copy the handle(s) and then filelessly download the target file(s).
+Cookie Monster BOF will extract the WebKit Master Key and the App Bound Encryption Key for both Edge and Chrome, locate a browser process with a handle to the Cookies and Login Data files, copy the handle(s) and then filelessly download the target file(s). 
+
+*Note: the EXE does not support fileless download but instead copies to a default database for extraction later.*
 
 Once the Cookies/Login Data file(s) are downloaded, the python decryption script can be used to extract those secrets! Firefox module will parse the profiles.ini and locate where the logins.json and key4.db files are located and download them. A seperate github repo is referenced for offline decryption.  
 
@@ -37,8 +39,15 @@ cookie-monster Options:
 ```
 ## Compile BOF 
 Ensure Mingw-w64 and make is installed on the linux prior to compiling.
-```
+```bash
+# to make all binaries
 make
+
+# to make just the BOF
+make bof
+
+# to make just the exe
+make exe
 ```
 
 ## Decryption Steps

@@ -13,6 +13,7 @@
 #include <string.h>
 #include <ncrypt.h>
 #define MAX_PATH_LEN 1024
+#define DEFAULT_COPY_PATH "C:\\temp\\startwithc"
 
 
 #define IMPORT_RESOLVE FARPROC SHGetFolderPath = Resolver("shell32", "SHGetFolderPathA"); \
@@ -1282,16 +1283,8 @@ int main(int argc, char *argv[]) {
     }
 
     if (args.copyFile == NULL || strlen(args.copyFile) == 0) {
-        // Get current working directory
-        if (_getcwd(defaultPath, sizeof(defaultPath)) != NULL) {
-            // Append filename
-            strcat(defaultPath, "\\startswithc.db");
-            args.copyFile = defaultPath;
-            printf("[DEBUG] No --copy-file path provided. Defaulting to: %s\n", args.copyFile);
-        } else {
-            fprintf(stderr, "[ERROR] Failed to get current working directory.\n");
-            exit(1);
-        }
+        args.copyFile = DEFAULT_COPY_PATH;
+        printf("[INFO] No --copy-file path provided. Defaulting to: %s\n", args.copyFile);
     }
 
 

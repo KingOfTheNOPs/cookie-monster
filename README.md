@@ -1,14 +1,16 @@
 # Cookie-Monster-BOF
-Steal browser cookies for edge, chrome and firefox through a BOF!
+Steal browser cookies for edge, chrome and firefox through a BOF or standalone EXE!
 
-Cookie Monster BOF will extract the WebKit Master Key and the App Bound Encryption Key for both Edge and Chrome, locate a browser process with a handle to the Cookies and Login Data files, copy the handle(s) and then filelessly download the target file(s).
+Cookie Monster BOF will extract the WebKit Master Key and the App Bound Encryption Key for both Edge and Chrome, locate a browser process with a handle to the Cookies and Login Data files, copy the handle(s) and then filelessly download the target file(s). 
+
+*Note: the EXE does not support fileless download but instead copies to a default database in the* `C:\Temp` *directory for extraction later.*
 
 Once the Cookies/Login Data file(s) are downloaded, the python decryption script can be used to extract those secrets! Firefox module will parse the profiles.ini and locate where the logins.json and key4.db files are located and download them. A seperate github repo is referenced for offline decryption.  
 
 Chrome & Edge 127+ Updates: new chromium browser cookies (v20) use the app bound key to encrypt the cookies. As a result, this makes retrieving the app_bound_encrypted_key slightly more difficult. Thanks to [snovvcrash](https://gist.github.com/snovvcrash/caded55a318bbefcb6cc9ee30e82f824) this process can be accomplished without having to escalate your privileges. The catch is your process must be running out of the web browser's application directory. i.e. must inject into Chrome/Edge or spawn a beacon from the same application directory as the browser. 
 
 Latest update allows you to decrypt cookies as SYSTEM and without having to inject into the browser process! Shoutout to @sdemius for the discovering how to decrypt the Chrome's [PostProcessData](https://source.chromium.org/chromium/chromium/src/+/main:chrome/elevation_service/elevator.cc;l=216;bpv=1) function and @b1scoito [explanation](https://github.com/moonD4rk/HackBrowserData/issues/431#issuecomment-2606665195)! Chrome 137+ changed the PostProcessData() function once again, shoutout to [@runassu](https://github.com/runassu/chrome_v20_decryption) for figuring it out! 
- 
+
 ## BOF Usage
 ```
 Usage: cookie-monster [--chrome || --edge || --system <Local State File Path> <PID> || --firefox || --chromeCookiePID <PID> || --chromeLoginDataPID <PID> || --edgeCookiePID <PID> || --edgeLoginDataPID <PID> ] [--cookie-only] [--key-only] [--login-data-only] [--copy-file "C:\Folder\Location\"] 
@@ -37,8 +39,15 @@ cookie-monster Options:
 ```
 ## Compile BOF 
 Ensure Mingw-w64 and make is installed on the linux prior to compiling.
-```
+```bash
+# to make all binaries
 make
+
+# to make just the BOF
+make bof
+
+# to make just the exe
+make exe
 ```
 
 ## Decryption Steps

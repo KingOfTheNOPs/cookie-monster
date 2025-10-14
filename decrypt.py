@@ -16,14 +16,14 @@ def cookies(key, file_location):
     try:
         conn = sqlite3.connect(file_location)
         cursor = conn.cursor()
-        cursor.execute('select host_key, "TRUE", path, "FALSE", expires_utc, name, CAST(encrypted_value AS BLOB) from cookies')
+        cursor.execute('select host_key, "TRUE", path, "FALSE", expires_utc, has_expires, name, CAST(encrypted_value AS BLOB) from cookies')
         values = cursor.fetchall()
-        for host_key, _, path, _, expires_utc, name, encrypted_value in values:
+        for host_key, _, path, _, expires_utc, has_expires, name, encrypted_value in values:
             print("Host: " + host_key)
             print("Path: " + path)
             print("Name: " + name)
             print("Cookie: " + decrypt_data(encrypted_value,key, False) + ";")
-            print("Expires: " + (datetime(1601, 1, 1) + timedelta(microseconds=expires_utc)).strftime('%b %d %Y %H:%M:%S'))
+            print("Expires: " + (datetime(1601, 1, 1) + timedelta(microseconds=expires_utc)).strftime('%b %d %Y %H:%M:%S')) if has_expires else -1
             print("")
     except sqlite3.Error as e:
         print("Error: Could not connect to database")
@@ -38,11 +38,11 @@ def cookies_for_editor(key, file_location):
     try:
         conn = sqlite3.connect(file_location)
         cursor = conn.cursor()
-        cursor.execute('select host_key, "TRUE", path, "FALSE", expires_utc, name, CAST(encrypted_value AS BLOB) from cookies')
+        cursor.execute('select host_key, "TRUE", path, "FALSE", expires_utc, has_expires, name, CAST(encrypted_value AS BLOB) from cookies')
         values = cursor.fetchall()
-        for host_key, _, path, _, expires_utc, name, encrypted_value in values:
+        for host_key, _, path, _, expires_utc, has_expires, name, encrypted_value in values:
             decrypted_value = decrypt_data(encrypted_value, key, False)
-            expiration_date = (datetime(1601, 1, 1) + timedelta(microseconds=expires_utc)).timestamp()
+            expiration_date = (datetime(1601, 1, 1) + timedelta(microseconds=expires_utc)).timestamp() if has_expires else -1
             cookie = {
                 "domain": host_key,
                 "expirationDate": expiration_date,

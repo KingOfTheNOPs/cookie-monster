@@ -218,3 +218,9 @@ typedef struct IElevatorChromeVtbl
     {
         struct IElevatorChromeVtbl *lpVtbl;
     };
+
+// Buffer to store decryption key and length
+typedef struct {
+    unsigned char* data;
+    size_t len;
+} Buffer;

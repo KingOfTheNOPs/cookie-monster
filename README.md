@@ -3,6 +3,21 @@ Steal browser cookies for edge, chrome and firefox through a BOF or standalone E
 
 Cookie Monster BOF will extract the WebKit Master Key and the App Bound Encryption Key for both Edge and Chrome, locate a browser process with a handle to the Cookies and Login Data files, copy the handle(s) and then filelessly download the target file(s). 
 
+- **Run Location Requirement**:  
+  The executable must be run from the same directory as the browser's binary for successful injection. Common locations include:  
+  - Chrome: `C:\Program Files\Google\Chrome`  
+  - Edge: `C:\Program Files (x86)\Microsoft\Edge`
+
+- **Permissions**:  
+  Placing the binary in the browser directory typically requires **local administrator privileges**. However, **running the tool does not require admin rights**.
+
+- **User Scope**:  
+  The utility targets browser files associated with the **current user only**. There is **no support** for specifying a different target user at this time.
+
+- **Output Location**:  
+  Extracted cookies will be copied to the directory specified by the `--copy-file` argument. If not provided, the default output location is the system's **Public** directory.
+
+
 *Note: the EXE does not support fileless download but instead copies to a default database in the* `C:\Temp` *directory for extraction later.*
 
 Once the Cookies/Login Data file(s) are downloaded, the python decryption script can be used to extract those secrets! Firefox module will parse the profiles.ini and locate where the logins.json and key4.db files are located and download them. A seperate github repo is referenced for offline decryption.  

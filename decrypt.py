@@ -193,11 +193,11 @@ def decode_cli_key(s):
 
 def argparse_args():
     parser = argparse.ArgumentParser(description='Decrypt Chromium cookies and passwords given a key and DB file')
-    parser.add_argument('-k', '--key', help='Decryption key', required=True)
+    parser.add_argument('-k', '--key', help='App Bound Decryption Key', required=False)
     parser.add_argument('-o','--option', choices=['cookies', 'passwords', 'cookie-editor', 'cuddlephish', 'firefox'], help='Option to choose', required=True)
     parser.add_argument('-f','--file', help='Location of the database file', required=True)
     parser.add_argument('--chrome-aes-key',help='Chrome AES Key',required=False)
-    parser.add_argument('-mk','--master-key', help='Old key used in v10 passwords', required=False)
+    parser.add_argument('-mk','--master-key', help='Master Key (optional key used in v10 passwords and roaming profiles)', required=False)
     return parser.parse_args()
 
 def main():
@@ -209,7 +209,13 @@ def main():
         base64ChromeKey = base64.b64encode(chromeAES.encode())
     master_key = decode_cli_key(args.master_key) if args.master_key else None
 
-    key = decode_cli_key(args.key)
+    key = decode_cli_key(args.key) if args.key else None
+
+    if not key and not master_key:
+       print("[!] Error: Either -k (app-bound key) or -mk (master key) is required")
+       sys.exit(1)
+    if not key and master_key:
+        key = master_key 
     # if key len is not 32, then its chrome 127+
     # https://github.com/runassu/chrome_v20_decryption/issues/14#issuecomment-2708796234 
     #key = binascii.unhexlify(key)

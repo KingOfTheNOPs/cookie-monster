@@ -99,8 +99,14 @@ typedef enum {
     PROTECTION_NONE = 0,
     PROTECTION_PATH_VALIDATION_OLD = 1,
     PROTECTION_PATH_VALIDATION = 2,
-    PROTECTION_MAX = 3
+    PROTECTION_PATH_VALIDATION_WITH_ISOLATION = 3,
+    PROTECTION_MAX = 4
 } ProtectionLevel;
+
+// Chrome 157+ rejects isolated app-bound data when the COM caller does not
+// carry Chrome's isolation security attribute. This commonly means a Beacon
+// was injected into the non-isolated launcher rather than its --isolated child.
+#define ELEVATOR_E_ISOLATION_STATE_INVALID ((HRESULT)0x8004A018L)
 
 // oleview used to extract structures
 // note how edge required 3 additional functions in the structure
@@ -210,8 +216,17 @@ typedef struct IElevatorChromeVtbl
             /* [out] */ BSTR *plaintext,
             /* [out] */ unsigned long *last_error);
         
-        HRESULT ( STDMETHODCALLTYPE *InstallVPNServices )( 
-            IElevatorChrome * This);
+        HRESULT ( STDMETHODCALLTYPE *RunIsolatedChrome )(
+            IElevatorChrome * This,
+            /* [in] */ DWORD flags,
+            /* [string][in] */ const WCHAR *command_line,
+            /* [out] */ BSTR *log,
+            /* [out] */ ULONG_PTR *proc_handle,
+            /* [out] */ DWORD *last_error);
+
+        HRESULT ( STDMETHODCALLTYPE *AcceptInvitation )(
+            IElevatorChrome * This,
+            /* [string][in] */ const WCHAR *server_name);
         
     } IElevatorChromeVtbl;
  

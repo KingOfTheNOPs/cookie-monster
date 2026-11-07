@@ -231,8 +231,6 @@ def main():
         chromeKey = bytearray(base64.b64decode(base64ChromeKey).decode('utf-8').replace('\\x', ''), 'utf-8')
         chromeKey = binascii.unhexlify(chromeKey)
 
-        xor_key = bytes.fromhex("CCF8A1CEC56605B8517552BA1A2D061C03A29E90274FB2FCF59BA4B75C392390")
-        xored_aes_key = byte_xor(chromeKey, xor_key)
 
     #print(len(key))
     if len(key) > 32:
@@ -252,6 +250,15 @@ def main():
             iv = key[1+32:1+32+12]
             ciphertext = key[1+32+12:1+32+12+32]
             tag = key[1+32+12+32:1+32+12+32+16]
+            xor_key = bytes.fromhex("CCF8A1CEC56605B8517552BA1A2D061C03A29E90274FB2FCF59BA4B75C392390")
+            xored_aes_key = byte_xor(chromeKey, xor_key)
+            cipher = AES.new(xored_aes_key, AES.MODE_GCM, nonce=iv)
+        elif flag == 4:
+            iv = key[1+32:1+32+12]
+            ciphertext = key[1+32+12:1+32+12+32]
+            tag = key[1+32+12+32:1+32+12+32+16]
+            xor_key = bytes.fromhex("208A6DA7114A44E6B463114BD9DA397E939ADEFEDBF4588117926B0F2C503158")
+            xored_aes_key = byte_xor(chromeKey, xor_key)
             cipher = AES.new(xored_aes_key, AES.MODE_GCM, nonce=iv)
         else:
             raise ValueError(f"Unsupported flag: {flag}")
